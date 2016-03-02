@@ -1,0 +1,6 @@
+[submodule "framework/glm"]
+	path = framework/glm
+	url = git://github.com/g-truc/glm
+[submodule "framework/stb"]
+	path = framework/stb
+	url = git://github.com/nothings/stb

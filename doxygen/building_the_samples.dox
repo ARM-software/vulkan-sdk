@@ -1,0 +1,49 @@
+/**
+\page buildingTheSamples Building The Samples
+\brief Shows how to build the Vulkan samples included in the Mali Vulkan SDK for Android.
+
+It is assumed that you have set up Android Studio and NDK appropriately as mentioned in the \ref gettingStartedGuide.
+
+\section buildingSamplesAndroidStudio Building samples in Android Studio
+
+Make sure you have checked out submodules before building.
+
+\code
+git submodule init
+git submodule update
+\endcode
+
+  -# Open Android Studio 2.2 or newer
+  -# Open an existing Android Studio project
+  -# Import a sample project, for example samples/hellotriangle
+  -# You might be prompted to update or install the Gradle wrapper. Do so if asked.
+  -# You might be prompted to download and/or update Android SDK tools if Android Studio has not downloaded these before
+  -# Under Tools -> Android -> SDK manager, install cmake, lldb and NDK components.
+  -# In the top menu, run Build -> Make Project
+  -# In the bottom of the screen, the Messages tab should display a build log which shows that libnative.so has been built and that build was successful
+  -# Run the app on the device by pressing the Play button on the top toolbar
+  -# To debug the code, Run -> Debug app. In the project view, you will find app/cpp/native/hellotriangle.cpp or similar. You can set breakpoints and step through the code.
+
+\section buildingSamplesEmbedded Building samples for ARM Linux and Linux desktop
+
+It is possible to build samples to run on ARM Linux or Linux desktop.
+shaderc (binary name: glslc) must be installed on your system to build shaders to SPIR-V.
+
+\code
+git submodule init
+git submodule update
+
+mkdir build
+cd build
+
+# For desktop Linux
+cmake .. -DPLATFORM=xcb -DTESTS:BOOL=ON
+# For ARMv7 hardfloat Linux
+cmake .. -DPLATFORM=display -DTESTS:BOOL=ON -DCMAKE_TOOLCHAIN_FILE=../toolchains/armhf.cmake
+# Other platforms include wayland, xcb, png (default).
+
+make -j8
+ctest # Runs all samples for a few seconds.
+\endcode
+
+*/

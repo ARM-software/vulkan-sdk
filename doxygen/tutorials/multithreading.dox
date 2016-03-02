@@ -1,0 +1,125 @@
+/**
+\page multithreading Multithreading in Vulkan
+
+\brief Shows you how to use Vulkan to draw a scene using multiple CPU threads.
+
+\image html multithreading.png "Dispatching many draw calls over multiple threads"
+
+\note The source for this sample can be found in samples/multithreading in the SDK.
+
+\section multithreadingIntro Introduction
+
+Multithreading is a cornerstone of Vulkan. Vulkan allows application to spread rendering workload
+across multiple CPU threads. This can have huge benefit for complex applications.
+
+There is no longer any need for applications to do all rendering in a single rendering thread.
+The rendering thread can often be the bottleneck. By spreading out work across multiple threads, rendering work and complete early and the CPU can stay asleep for longer, conserving battery life. It is far better for power consumption that 4 CPU cores stay awake 25% of the time, than 1 core staying awake 100% of the time.
+
+In this sample, we will see how we can split up rendering work across multiple threads.
+We base the sample on \ref rotatingTexture, expanding it by rendering several textured quads,
+split over multiple threads and many draw calls.
+
+\section multithreadingCommandBufferSafety Rules for Safe Multithreading
+
+In Vulkan, most operations are externally synchronized, as in, it is up to the programmer to ensure that
+a resource is not written to simultaneously by multiple threads. This applies to command buffers as well.
+This means that multiple threads cannot efficiently build commands on the same command buffers.
+We need to split up the rendering workload into different command buffers.
+
+However, we cannot just consider command buffers. Command buffers allocate their memory from command pools.
+Each worker thread must therefore own its own command pool. This way each worker thread can allocate command buffers
+from separate pool. This avoids all kind of locking and applications can build commands completely in parallel.
+
+To make this setup convenient we will create a "thread pool" abstraction with a fixed number of threads available.
+We assign one command buffer manager per worker thread, where each command manager in turn contains one command pool per swapchain image. This way each thread can always build commands safely.
+
+\section multithreadingSecondary Secondary Command Buffers
+
+In Vulkan, a renderpass must begin and end in the same command buffer.
+We therefore cannot efficiently parallelize building of a *primary* command buffer.
+However, we can build part of a renderpass inside separate, *secondary* command buffers.
+The purpose of secondary command buffers is that they can focus solely on building draw commands on a separate thread,
+and the command buffer can be linked back into the primary command buffer by means of vkCmdExecuteCommands().
+
+\section multithreadingRendering Rendering
+
+From the \ref rotatingTexture sample, we modify things slightly. We begin the renderpass by specifying
+that we will use SECONDARY_COMMAND_BUFFERS (and only that) for submitting work.
+We can now request secondary command buffers. It is essentially the same as requestPrimaryCommandBuffer,
+except that we also specify the worker thread ID, so we can allocate the command buffer from separate command pools.
+
+\code
+vkCmdBeginRenderPass(cmd, &rpBegin, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+unsigned numThreads = threadPool.getWorkerThreadCount();
+vector<VkCommandBuffer> commandBuffers(numThreads);
+
+for (unsigned i = 0; i < numThreads; i++)
+{
+	VkCommandBuffer secondaryCmd = pContext->requestSecondaryCommandBuffer(i);
+	commandBuffers[i] = secondaryCmd;
+
+	...
+}
+\endcode
+
+When beginning the command buffer, we specify inheritance information, such as being able to create graphics commands.
+The state in the secondary command buffers are completely isolated, so we need to specify up front at least
+which render pass we will use. We also specify which framebuffer we are rendering into.
+
+\code
+VkCommandBufferBeginInfo secondaryBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+VkCommandBufferInheritanceInfo inheritance = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+secondaryBeginInfo.flags =
+	VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+secondaryBeginInfo.pInheritanceInfo = &inheritance;
+inheritance.renderPass = renderPass;
+inheritance.framebuffer = backbuffer.framebuffer;
+inheritance.subpass = 0;
+
+vkBeginCommandBuffer(secondaryCmd, &secondaryBeginInfo);
+\endcode
+
+We are now ready to push work into the thread pool.
+
+\code
+unsigned beginInstance = (i * NUM_INSTANCES) / numThreads;
+unsigned endInstance = ((i + 1) * NUM_INSTANCES) / numThreads;
+VkDescriptorSet descriptorSet = frame.descriptorSet;
+
+threadPool.pushWorkToThread(i, [=]
+                            {
+                                renderScene(secondaryCmd, beginInstance, endInstance, descriptorSet);
+                            });
+\endcode
+
+renderScene() is very similar to the main rendering function in \ref rotatingTexture.
+The main difference is that we split up the scene into many draw calls.
+
+\code
+vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &set, 0, nullptr);
+
+for (unsigned baseInstance = beginInstance; baseInstance < endInstance;)
+{
+	unsigned instancesToDraw = glm::min(endInstance - baseInstance, unsigned(MAX_INSTANCES_PER_DRAW_CALL));
+	vkCmdDraw(cmd, 4, instancesToDraw, 0, baseInstance);
+	baseInstance += instancesToDraw;
+}
+\endcode
+
+In the main thread, we can now wait for the rendering threads to complete their work and inject the commands
+into the main render pass.
+
+\code
+// Wait for thread pool to go idle.
+threadPool.waitIdle();
+
+// Submit the secondary command buffers to the primary command buffer.
+vkCmdExecuteCommands(cmd, commandBuffers.size(), commandBuffers.data());
+
+// Complete render pass.
+vkCmdEndRenderPass(cmd);
+\endcode
+
+
+*/
+

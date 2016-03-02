@@ -1,0 +1,33 @@
+/**
+\page gettingStartedGuide Getting Started Guide
+\brief Everything you need to know to go from scratch to building Android Vulkan applications.
+
+\section gettingStartedGuideIntroduction Introduction
+
+This guide helps you get up and running with developing for your Mali GPU
+based platform running Android. It helps you to download and configure the
+tools so you can begin to develop apps for your platform.
+It is assumed you are either running Linux or Windows as your host platform.
+
+\section gettingStartedGuideGettingAppropriateTools Getting the Appropriate Tools
+
+You require a few tools for Android Development. Most of these are in one place.
+Download Android Studio <a href="http://developer.android.com/sdk/index.html">here</a> and install it.
+Once you have installed the Android Studio, install CMake, LLDB and the NDK from the SDK manager.
+
+\section connecting Connecting your Device
+
+Connect your device to your host machine. Make sure to enable USB debugging on the device so that you can push built APKs onto the device. To verify that you have the proper access to a device, you can use adb to verify this.
+
+\code
+$ adb devices
+XXXXXXXXXXXXXXX    device
+\endcode
+
+If you are having problems with ADB, please consult <a href="http://developer.android.com/tools/help/adb.html">this page</a>.
+
+\section gettingStartedGuideBuildingAProject Building and Running Your Application
+
+To build a sample, see \ref buildingTheSamples.
+
+*/

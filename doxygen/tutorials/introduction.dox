@@ -1,0 +1,96 @@
+/**
+\page vulkanIntro Overview of Vulkan
+
+\brief This document will give you a brief overview of the Vulkan API.
+
+\image html "vulkan.png"
+
+\section vulkanIntroduction Introduction
+
+Vulkan is the latest graphics and compute API from Khronos Group.
+The goal of the API is to give developers lower-level and more explicit access to the GPU.
+
+\subsection vulkanForWhom Who Will Benefit from Using Vulkan?
+
+\li A developer who desires more explicit control over the GPU and is willing to go the extra mile.
+\li Your application is heavy on CPU load and you can benefit from multithreading if the API allows it.
+\li Your application is having stuttering due to resource management and you know better than the graphics driver how to manage memory for your particular application.
+\li If power consumption and battery life is important, the reduced overhead and multithreading can help reduce power consumption.
+
+\note Vulkan is not intended to be an easy-to-learn or easy-to-use API.
+It demands a lot from a developer, but it can reward this dedication with exceptional performance when used correctly.
+
+\section vulkanPowerConsumption Reducing CPU Overhead and Power Consumption
+
+One of the major complaints from developers in graphics APIs has been CPU overhead.
+Vulkan can dramatically reduce CPU overhead by stripping out unnecessary validation and error handling.
+In turn, reduced overhead improves power consumption and hence battery life, a critical factor for games and other interactive applications.
+
+\subsection vulkanMultithreading Greatly Improved Multithreading
+
+Combined with reduced single-threaded CPU overhead, Vulkan also enables full multithreading support
+where applications can take advantage of increasing CPU core counts in mobile devices.
+With big.LITTLE configurations, a very interesting approach is to move lots of rendering threads to the power efficient cores.
+Multithreading can let the entire CPU go to sleep faster which is where most power saving in a processor comes from.
+Even if an application is running at full speed, further reducing power consumption can be critical to squeeze out the last battery life out of the portable device.
+
+\subsection vulkanUpFront Specifying Intended Usage Up Front
+
+In Vulkan, before doing something it is usually necessary to specify clearly up front what the intent
+is. This allows drivers to avoid second-guessing the application at the very last minute. This is a typical source of frustration with stuttery and unpredictable performance that can be hard to narrow down.
+
+\section vulkanCommandBuffer Command Buffers and Queues
+
+In Vulkan, global state has been removed. There is no longer any global context.
+Performing work on the GPU is abstracted in command buffers, which are built on the CPU and then submitted
+to the GPU queue. This matches much closer to how graphics cards work.
+
+Having command buffers also greatly reduces potential problems with the typical problems that arise from
+having global state.
+
+\section vulkanPortability Portability
+
+Mobile is now a first class member of the graphics ecosystem and is not split up into an "embedded" profile, like with OpenGL and OpenGL ES.
+This ensures that porting applications between desktop and mobile will be a more streamlined process than before.
+Instead of a separate API, mobile devices can instead expose a slimmer feature set. The baseline for Vulkan device support is based on the OpenGL ES 3.1 API.
+
+\subsection vulkanWSI Vulkan Window System Integration (WSI)
+
+Instead of having many different ways to create OpenGL contexts with EGL, GLX, WGL, etc, Vulkan has one standardized way of interacting with the platforms windowing system.
+The WSI defines a standard interface for swapchain, and the only platform specific part is creating a generic surface object from your platform specific handles.
+
+\section vulkanStreamline Streamlined and Predictable Behavior
+
+In Vulkan, far more responsibilities are placed on the developer to make the right decisions.
+This means that a developer has far more control over where and when work happens on the GPU.
+One of the fundamentals of Vulkan is that the driver should not try to second-guess the developer
+and perform unpredictable work behind the developers back.
+
+\section vulkanLayers Layered Architecture
+
+In Vulkan, the drivers themselves disable as much error checking and validation it can in order to greatly reduce CPU overhead. Instead of relying every vendor to fully implement error handling correctly, open-source software layers can be put on top of a driver, which can perform all validation and checking.
+
+\section vulkanSPIRV SPIR-V Shading Language Intermediate Representation
+
+SPIR-V is an intermediate representation for shaders instead of the previous model in OpenGL and OpenGL ES which was based on online shader compilation. In practice, having a binary intermediate representation means fewer compatibility issues between GPUs and can support off-line compilation with known toolchains.
+
+\subsection vulkanGLSL Vulkan GLSL, the Reference Language Targeting SPIR-V
+
+While SPIR-V is a binary format, there is no need to write SPIR-V in arcane assembly-like formats.
+Vulkan GLSL is a modern evolution of the well known and established OpenGL Shading Language with extensions
+to support the feature set found in SPIR-V.
+
+Glslang is a Khronos supported project which provides a reference (Vulkan) GLSL implementation
+that can also emit ready-to-use SPIR-V.
+
+\section vulkanLinks Links
+<a href="https://www.khronos.org/assets/uploads/developers/library/overview/vulkan-overview.pdf">Khronos - Vulkan Overview</a>
+
+<a href="https://www.khronos.org/registry/vulkan/specs/1.0/apispec.html">Khronos - Vulkan API Reference Pages</a>
+
+<a href="https://www.khronos.org/registry/spir-v/specs/1.0/SPIRV.pdf">Khronos - SPIR-V 1.0 Specification</a>
+
+<a href="https://github.com/KhronosGroup/glslang">Github - KhronosGroup/glslang</a>
+
+*/
+

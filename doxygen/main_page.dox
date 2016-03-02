@@ -1,0 +1,46 @@
+/**
+\mainpage
+Welcome to Mali Vulkan SDK for Android $(VERSION).
+
+\section about About
+
+The Mali Vulkan SDK is a collection of resources to help you build Vulkan applications
+for a platform with a Mali GPU and an ARM processor. You can use it for creating new applications,
+training, and exploration of implementation possibilities.
+
+You can use the Mali SDK to produce applications that will run on any devices that run Android and Vulkan on an ARM processor.
+
+\section requirements Requirements
+To build and run the Vulkan sample applications you will need:
+ -  An ARM based device with a Mali GPU running Android which supports Vulkan.
+ -  The <a href="http://developer.android.com/sdk/index.html">latest Android Studio</a>.
+
+\section gettingStarted Getting Started
+ -  See the \ref gettingStartedGuide for information on how to get started.
+ -  Have a look at some \ref tutorials.
+ -  Look at \ref buildingTheSamples for how to build the samples.
+
+\section changeLog Change Log
+Summary of changes between versions of the Mali Vulkan SDK.
+
+\subsection v110 Changes in version 1.1.0
+ -  Added Multipass sample
+ -  Added ASTC sample
+ -  Added validation layer integration
+ -  Added backend for VK_KHR_display
+ -  Added backend for VK_KHR_xcb_surface
+ -  Rewrote build system for Android Studio 2.2+ and CMake
+ -  Various improvements to existing samples
+ -  Changed license to MIT
+
+\subsection v100 Changes in version 1.0.0
+ -  First release of the Vulkan SDK.
+
+\section contents Contents
+Directory     | Contents
+------------- | -------------
+docs          | Documentation for the SDK including tutorials.
+samples       | Sample Vulkan applications.
+framework     | Simple framework used by samples.
+platform      | Platform specific implementations.
+*/

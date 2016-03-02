@@ -1,0 +1,348 @@
+/**
+\page rotatingTexture Rotating Texture
+
+\brief This tutorial introduces texturing and uniform buffers.
+
+\image html rotating_texture.png "Rotating a quad with uniform buffers and textures"
+
+\note The source for this sample can be found in samples/rotating_texture in the SDK.
+
+\section rotatingTextureIntroduction Introduction
+
+This sample builds on the \ref helloTriangle sample. We will add texturing as well as rotating the quad using a uniform buffer.
+
+\section rotatingTextureDescriptorSets Descriptor Sets
+
+For binding resources to the command buffers such as textures and uniform buffers,
+we will need to introduce descriptor sets.
+
+In Vulkan, resources which are used by a pipeline are organized into descriptor sets.
+Descriptor sets are collections of buffers and images which can be accessed by the pipeline.
+One core idea of descriptor sets is that they are designed to be organized in terms of update frequency.
+For example, descriptor set #0 could have per-frame resources like shadow maps, MVP matrices, etc.
+Descriptor set #1 and beyond would progressively have higher and higher frequency data.
+Vulkan mandates support for at least 4 descriptor sets being used at the same time.
+
+\section rotatingTextureUpload Uploading Textures
+
+Uploading textures in Vulkan is a very explicit operation.
+We will need to create an image which is to be sampled, and a buffer which will hold the data to be copied over to the target texture.
+
+First, we load the asset into a raw buffer.
+
+\code
+unsigned width, height;
+vector<uint8_t> buffer;
+
+if (FAILED(loadRgba8888TextureFromAsset(pPath, &buffer, &width, &height)))
+{
+	LOGE("Failed to load texture from asset.\n");
+	abort();
+}
+\endcode
+
+We will now create a TRANSFER_SRC buffer which can use to copy the data into an image.
+
+\code
+Buffer stagingBuffer = createBuffer(buffer.data(), width * height * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+\endcode
+
+Now, we will create an optimally tiled texture which we can sample from and transfer to.
+
+\code
+// We will transition the actual texture into a proper layout before transfering any data, so leave it as undefined.
+VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+info.imageType = VK_IMAGE_TYPE_2D;
+info.format = VK_FORMAT_R8G8B8A8_UNORM;
+info.extent.width = width;
+info.extent.height = height;
+info.extent.depth = 1;
+info.mipLevels = 1;
+info.arrayLayers = 1;
+info.samples = VK_SAMPLE_COUNT_1_BIT;
+info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+info.tiling = VK_IMAGE_TILING_OPTIMAL;
+info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+// Create texture.
+VK_CHECK(vkCreateImage(device, &info, nullptr, &image));
+\endcode
+
+As before, we will allocate DEVICE_LOCAL memory for the texture.
+We create a VkImageView from it as well. It is important that you bind memory to the image before creating a VkImageView.
+
+We now copy the texture data from the staging buffer we created earlier into the texture.
+Copying is a command, so we will need a fresh command buffer.
+
+\code
+VkCommandBuffer cmd = pContext->requestPrimaryCommandBuffer();
+\endcode
+
+We now need to transition our texture to a TRANSFER_DST_OPTIMAL layout from an UNDEFINED layout, and finally,
+we can copy the buffer to the texture.
+
+\code
+VkBufferImageCopy region;
+memset(&region, 0, sizeof(region));
+region.bufferOffset = 0;
+region.bufferRowLength = width;
+region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+region.imageSubresource.layerCount = 1;
+region.imageExtent.width = width;
+region.imageExtent.height = height;
+region.imageExtent.depth = 1;
+
+// Copy the buffer to our optimally tiled image.
+vkCmdCopyBufferToImage(cmd, stagingBuffer.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+\endcode
+
+After copying completes, we need to transition the texture from TRANSFER_DST_OPTIMAL into SHADER_READ_ONLY_OPTIMAL.
+The texture is now ready to be sampled from in a shader.
+
+At the very end, we create a sampler object. This sampler specifies how we will sample our texture.
+We set up a simple bilinear filter.
+
+\code
+// Finally, create a sampler.
+VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+samplerInfo.magFilter = VK_FILTER_LINEAR;
+samplerInfo.minFilter = VK_FILTER_LINEAR;
+samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+samplerInfo.mipLodBias = 0.0f;
+samplerInfo.maxAnisotropy = 1.0f;
+samplerInfo.compareEnable = false;
+samplerInfo.minLod = 0.0f;
+samplerInfo.maxLod = 0.0f;
+
+VkSampler sampler;
+VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &sampler));
+\endcode
+
+\note In Vulkan, it is possible to create textures with VK_IMAGE_TILING_LINEAR, this allows textures to be sampled without having to go through an explicit copy operation as you can memcpy() your texture data straight into the texture. This can be very useful for use cases where the texture is streamed in every frame. On Mali and other integrated GPUs this can save a lot of extra overhead if your application is doing a lot of dynamic 2D content. Not all GPUs are required to support this feature however, so you should check that this feature is available before making use of it.
+
+\section rotatingTextureImageBarrier Using Image Memory Barriers to Change Layouts
+
+In this sample and \ref helloTriangle we used the render pass to perform image layout transitions. In the case of uploading textures however, we need to perform layout transitions outside the render pass structure.
+
+After creating the image, it is in an undefined layout and it will contain garbage data.
+To be able to transfer to the image, we need to use a layout which supports this.
+In this case we use TRANSFER_DST_OPTIMAL.
+
+\code
+// Transition the uninitialized texture into a TRANSFER_DST_OPTIMAL layout.
+// We do not need to wait for anything to make the transition, so use TOP_OF_PIPE_BIT as the srcStageMask.
+imageMemoryBarrier(cmd, image, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+				   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+				   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+void RotatingTexture::imageMemoryBarrier(VkCommandBuffer cmd, VkImage image, VkAccessFlags srcAccessMask,
+                                         VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageMask,
+                                         VkPipelineStageFlags dstStageMask, VkImageLayout oldLayout,
+                                         VkImageLayout newLayout)
+{
+	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+
+	barrier.srcAccessMask = srcAccessMask;
+	barrier.dstAccessMask = dstAccessMask;
+	barrier.oldLayout = oldLayout;
+	barrier.newLayout = newLayout;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = image;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.layerCount = 1;
+
+	vkCmdPipelineBarrier(cmd, srcStageMask, dstStageMask, false, 0, nullptr, 0, nullptr, 1, &barrier);
+}
+\endcode
+
+The structure of the pipeline barrier is that we wait for the pipeline stages that come before the barrier in srcStageMask, and when those
+pipeline stages complete, we unblock the pipeline stages in dstStageMask.
+
+Between completing execution in srcStageMask and starting execution in dstStageMask, we can add memory barriers. This is where we can perform image layout transitions.
+
+In our particular scenario here, we have a freshly allocated image. Nothing has written to the image prior to this.
+We can therefore transition right away. To avoid waiting for any pipeline stage, TOP_OF_PIPE_BIT can be used in the srcStageMask.
+We only care about the layout transition completing when we are copying to the image. This happens in the TRANSFER_BIT stage, so we make that our dstStageMask.
+While in the TRANSFER_BIT stage, our memory access is a TRANSFER_WRITE_BIT, so we add that to our dstAccessMask. It is important that stage masks and access masks match up (transfer access in transfer stages).
+In the Vulkan model, each pipeline stage can have its own caching and memory mechanisms.
+
+After completing the transfer, we need to transition away from the TRANSFER_DST_OPTIMAL layout.
+An ideal choice here is SHADER_READ_ONLY_OPTIMAL.
+
+\code
+// Wait for all transfers to complete before we let any fragment shading begin.
+imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+				   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+\endcode
+
+We want to wait for all transfers to complete (srcStageMask), and all memory transfers to complete (srcAccessMask = TRANSFER_WRITE_BIT), before we transition from
+TRANSFER_DST_OPTIMAL to SHADER_READ_ONLY_OPTIMAL.
+In FRAGMENT_SHADER_BIT stage (dstStageMask), we will read the texture (dstAccessMask = SHADER_READ_BIT), so make sure that the fragment shader stage can observe the updated memory.
+
+Another way to look at this is if we treat srcAccessMask as cache flush and dstAccessMask as cache invalidation.
+
+\section rotatingTexturePipelineLayout Creating a Pipeline Layout
+
+If we are using resources like buffers and textures in our shaders, we need to specify up-front a pipeline layout.
+This layout serves as the "signature" of the pipeline, effectively a function prototype which specifies where and which resources will be bound to our pipeline.
+
+In this sample, we use a uniform buffer in the vertex shader, and a combined image sampler in the texture.
+
+\code
+// shaders/textured.vert
+layout(set = 0, binding = 1, std140) uniform UBO
+{
+    mat4 MVP;
+};
+\endcode
+
+\code
+// shaders/textures.frag
+layout(set = 0, binding = 0) uniform sampler2D sTexture;
+\endcode
+
+We specify how descriptor set #0 is laid out.
+The first binding is a combined image sampler visible to fragment shaders,
+and the second binding is a uniform buffer, only visible to vertex shaders.
+Based on the single descriptor set layout, we create a pipeline layout.
+
+\code
+void RotatingTexture::initPipelineLayout()
+{
+	VkDevice device = pContext->getDevice();
+
+	VkDescriptorSetLayoutBinding bindings[2] = { { 0 } };
+	bindings[0].binding = 0;
+	bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	bindings[0].descriptorCount = 1;
+	bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	bindings[1].binding = 1;
+	bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	bindings[1].descriptorCount = 1;
+	bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+	VkDescriptorSetLayoutCreateInfo info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+	info.bindingCount = 2;
+	info.pBindings = bindings;
+	VK_CHECK(vkCreateDescriptorSetLayout(device, &info, nullptr, &setLayout));
+
+	VkPipelineLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+	layoutInfo.setLayoutCount = 1;
+	layoutInfo.pSetLayouts = &setLayout;
+	VK_CHECK(vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout));
+}
+\endcode
+
+When we create a pipeline, we also specify our pipeline layout.
+
+\code
+VkGraphicsPipelineCreateInfo pipe = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+...
+pipe.layout = pipelineLayout;
+VK_CHECK(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipe, nullptr, &pipeline));
+\endcode
+
+\section rotatingTextureDescriptorPool Creating a Descriptor Pool and Descriptor Sets
+
+Once we have our layout, we need to allocate and configure our descriptor sets, passing concrete textures and uniforms
+to our shader.
+
+Descriptor sets require memory to allocate. Since descriptors by nature are highly vendor specific and opaque,
+descriptor set memory is allocated from pre-allocated pools. We create one by specifing which descriptors we will allocate from it.
+
+\code
+static const VkDescriptorPoolSize poolSizes[2] = {
+	{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 }, { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
+};
+
+VkDescriptorPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+poolInfo.poolSizeCount = 2;
+poolInfo.pPoolSizes = poolSizes;
+poolInfo.maxSets = 1;
+VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &frame.descriptorPool));
+
+VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+allocInfo.descriptorPool = frame.descriptorPool;
+allocInfo.descriptorSetCount = 1;
+allocInfo.pSetLayouts = &setLayout;
+VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &frame.descriptorSet));
+\endcode
+
+When we allocate from a descriptor pool, we also specify the actual descriptor set layout we will use.
+In poolInfo.maxSets = 1 we specified that we can allocate one set from this pool.
+In a realistic application, this will likely be larger so we can amortize the creation of descriptor pools.
+
+Once we have allocated a descriptor set, we update it by filling in real data.
+
+\code
+VkDescriptorBufferInfo bufferInfo = { frame.uniformBuffer.buffer, 0, sizeof(mat4) };
+VkDescriptorImageInfo imageInfo = { texture.sampler, texture.view, texture.layout };
+
+writes[0].dstSet = frame.descriptorSet;
+writes[0].dstBinding = 0;
+writes[0].descriptorCount = 1;
+writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+writes[0].pImageInfo = &imageInfo;
+
+writes[1].dstSet = frame.descriptorSet;
+writes[1].dstBinding = 1;
+writes[1].descriptorCount = 1;
+writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+writes[1].pBufferInfo = &bufferInfo;
+
+vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+\endcode
+
+We create one descriptor set here for every swapchain image. This is so we can update our UBOs while the GPU
+is busy rendering previous frames.
+
+\section rotatingTextureRender Rendering
+
+The rendering function is very similar to before \ref helloTriangle, except that we now update a UBO every frame and we bind a descriptor set.
+
+\code
+PerFrame &frame = perFrame[swapchainIndex];
+
+...
+
+// Bind the descriptor set.
+vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &frame.descriptorSet, 0,
+						nullptr);
+
+// Update the uniform buffers memory.
+mat4 *pMatrix = nullptr;
+VK_CHECK(vkMapMemory(pContext->getDevice(), frame.uniformBuffer.memory, 0, sizeof(mat4), 0,
+					 reinterpret_cast<void **>(&pMatrix)));
+
+float aspect = float(width) / height;
+float textureAspect = float(texture.width) / texture.height;
+
+// Simple orthographic projection.
+mat4 proj = ortho(aspect * -1.0f, aspect * 1.0f, -1.0f, 1.0f, 0.0f, 1.0f);
+
+// Create a simple rotation matrix which rotates around the Z axis
+// and write it to the mapped memory.
+accumulatedTime += deltaTime;
+mat4 rotation = rotate(accumulatedTime, vec3(0.0f, 0.0f, 1.0f));
+
+// Scale the quad such that it matches the aspect ratio of our texture.
+mat4 model = scale(rotation, vec3(textureAspect, 1.0f, 1.0f));
+
+// Fixup the projection matrix so it matches what Vulkan expects.
+*pMatrix = vulkanStyleProjection(proj) * model;
+vkUnmapMemory(pContext->getDevice(), frame.uniformBuffer.memory);
+
+// Draw a quad with one instance.
+vkCmdDraw(cmd, 4, 1, 0, 0);
+\endcode
+
+*/
+

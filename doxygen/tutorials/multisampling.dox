@@ -1,0 +1,179 @@
+/**
+\page multisampling Multisampling in Vulkan
+
+\brief This document will give you an introduction to efficiently use multisampling in Vulkan.
+
+\image html multisampling.png "Multisampling in Vulkan with resolve attachments"
+
+\image html rotating_texture.png "Same quad, without multisampling"
+
+\note The source for this sample can be found in samples/multisampling in the SDK.
+
+\section multisamplingIntro Introduction
+
+For this sample, we will look at how we can efficiently implement multisampled anti-aliasing (MSAA) on Mali GPUs the most efficient way. There are two main approaches we can choose from, where one alternative is dramatically better than the other.
+
+We will base the sample on \ref rotatingTexture so we can focus on the differences from rendering without MSAA to rendering with MSAA.
+
+\subsection multisamplingSlowResolve Rendering to Multisampled Texture, Resolving Later (slow)
+
+The traditional way of doing multisampling is to first create a multisampled texture, render to it, then have an explicit
+"resolve" step. This is highly inefficient. To implement this, the GPU needs to write out a full 4xMSAA buffer, which is four times the size of a regular texture, then read it back to the GPU in order to resolve the final pixel values.
+
+\code
+// Resolves a multisampled image to non-multisampled, but extremely expensive.
+vkCmdResolveImage(cmd, srcImage, dstImage, ...);
+\endcode
+
+It is highly recommended to avoid this path on Mali.
+
+\subsection multisamplingResolveOnTile Resolving a transient multisampled texture to non-multisampled texture (optimal)
+
+Vulkan exposes a fast path which takes full advantage of tiled architectures. On Mali, we can obtain 4xMSAA practically "free" (typically 1-2 % speed hit) by making use of resolve attachments in Vulkan.
+
+\section multisamplingRenderPass Setting up the VkRenderpass
+
+For multisampled rendering, we need to change how we set up our render pass.
+We will need two attachments, one multisampled texture, and one without.
+
+\code
+VkAttachmentDescription attachments[2] = { { 0 } };
+
+// This is the multisampled attachment we will render to.
+// After resolving the texture, we do not need to preserve it, so use DONT_CARE for storeOp here.
+attachments[0].format = format;
+attachments[0].samples = VK_SAMPLE_COUNT_4_BIT;
+attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+
+// DONT_CARE is critical here, since it allows tile based renderers to completely avoid
+// writing out the multisampled framebuffer to memory. This is a huge performance and bandwidth
+// improvement.
+attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+// The image layout will be attachmentOptimal when we're executing the renderpass.
+attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+// This is the backbuffer which we will resolve the multisampled image to.
+attachments[1].format = format;
+attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+// loadOp is meaningless here since we will resolve to it and never render to it.
+attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+// The image layout will be attachmentOptimal when we're executing the renderpass.
+attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+attachments[1].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+\endcode
+
+It is critically important that we set up the storeOp correctly for the multisampled attachment.
+After resolve, there is no need why we should ever want to keep the multisampled data, so we set it to STORE_OP_DONT_CARE. This allows the driver to only keep the multisampled buffer on-tile instead of in main memory.
+
+Now, we specify our subpass, we only have one subpass, but it will have two attachments. One color buffer, and one resolve buffer.
+
+\code
+// We have one subpass.
+// This subpass has 2 color attachments. First is multisampled, other is not.
+VkAttachmentReference colorRef = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+VkAttachmentReference resolveRef = { 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+VkSubpassDescription subpass = { 0 };
+subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+subpass.colorAttachmentCount = 1;
+
+// At end of sub-pass, resolve the multisampled color to backbuffer.
+subpass.pColorAttachments = &colorRef;
+subpass.pResolveAttachments = &resolveRef;
+
+// Finally, create the renderpass.
+VkRenderPassCreateInfo rpInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+rpInfo.attachmentCount = 2;
+rpInfo.pAttachments = attachments;
+rpInfo.subpassCount = 1;
+rpInfo.pSubpasses = &subpass;
+VK_CHECK(vkCreateRenderPass(pContext->getDevice(), &rpInfo, nullptr, &renderPass));
+\endcode
+
+\section multisamplingPipeline Setting up the VkPipeline
+
+In the VkPipeline, there aren't many changes.
+We need to specify that we are rendering with 4x multisampling.
+
+\code
+// Render with 4x MSAA.
+VkPipelineMultisampleStateCreateInfo multisample = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+multisample.rasterizationSamples = VK_SAMPLE_COUNT_4_BIT;
+multisample.sampleShadingEnable = false;
+multisample.alphaToCoverageEnable = false;
+multisample.alphaToOneEnable = false;
+\endcode
+
+\section multisamplingFramebuffer Setting up the VkFramebuffers
+
+When creating the framebuffers, we just have to include our multisampled texture.
+Note that multisampledRenderTarget comes first since we specified that attachment 0 was multisampled in VkRenderpass.
+
+\code
+// Build the framebuffer.
+VkFramebufferCreateInfo fbInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+fbInfo.renderPass = renderPass;
+fbInfo.attachmentCount = 2;
+
+const VkImageView attachments[] = { multisampledRenderTarget.view, backbuffer.view };
+fbInfo.pAttachments = attachments;
+fbInfo.width = width;
+fbInfo.height = height;
+fbInfo.layers = 1;
+
+VK_CHECK(vkCreateFramebuffer(device, &fbInfo, nullptr, &backbuffer.framebuffer));
+\endcode
+
+\section multisamplingTexture Creating a Transient, Lazily Allocated Texture
+We know that we will never actually need to write to the multisampled texture.
+It will only live as a temporary entity while executing the render pass.
+
+We can express this by using TRANSIENT_ATTACHMENT_BIT.
+
+\code
+VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+info.imageType = VK_IMAGE_TYPE_2D;
+info.format = format;
+info.extent.width = width;
+info.extent.height = height;
+info.extent.depth = 1;
+info.mipLevels = 1;
+info.arrayLayers = 1;
+info.samples = VK_SAMPLE_COUNT_4_BIT;
+info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+info.tiling = VK_IMAGE_TILING_OPTIMAL;
+
+// This image will only be used as a transient render target.
+// Its purpose is only to hold the multisampled data before resolving the render pass.
+info.usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+// Create texture.
+VkImage image;
+VkDeviceMemory memory;
+VK_CHECK(vkCreateImage(device, &info, nullptr, &image));
+\endcode
+
+When we allocate memory for this texture, we can choose a lazy allocation which only actually allocated
+memory for the texture when it's being written to (never).
+
+\code
+VkMemoryAllocateInfo alloc = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+alloc.allocationSize = memReqs.size;
+// For multisampled attachments, we will want to use LAZILY allocated if such a type is available.
+alloc.memoryTypeIndex =
+	findMemoryTypeFromRequirementsWithFallback(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT);
+VK_CHECK(vkAllocateMemory(device, &alloc, nullptr, &memory));
+vkBindImageMemory(device, image, memory, 0);
+\endcode
+
+*/
+

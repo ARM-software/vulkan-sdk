@@ -1,0 +1,218 @@
+/**
+\page spinning_cube Spinning Cube with Depth Testing and Push Constants
+
+\brief This tutorial introduces depth testing and push constants
+
+\image html spinning_cube.png "Spinning cube!"
+
+\note The source for this sample can be found in samples/spinning_cube in the SDK.
+
+\section Introduction
+
+This sample builds on the \ref rotatingTexture sample. We will illustrate the use of push constants and how to setup the various Vulkan objects to enable depth testing.
+
+\section spinning_cube_pushc Push constants
+
+Push constants represent a high speed path to modify uniform data. As opposed to uniform buffers push constants (in many implementations) offer higher performance access but they are of limited size. According to the spec the implementations should support at least 128 bytes of push constant data for all shader stages.
+
+\subsection spinning_cube_pushc_glsl Push constants in GLSL
+
+To enable push constants you will require changes in the shaders and some additional setup in the pipeline layout.
+
+To define a number of uniforms as push constants we just need to add \b push_constant to the layout decoration. For example, to define the MVP matrix as push constant in a vertex shader:
+
+\code
+layout(std430, push_constant) uniform PushConstants
+{
+    mat4 MVP;
+} constants;
+
+...
+gl_Position = constants.MVP * vec4(Position, 1.0);
+\endcode
+
+\subsection spinning_cube_pushc_pplinel Creating a pipeline layout with push constant support
+
+The additions to the pipeline layout creation (for the above example) could be:
+
+\code
+VkPipelineLayoutCreateInfo layoutInfo;
+...
+
+// Setup the push constants. It's a single mat4 in the vertex shader.
+VkPushConstantRange pushConstantInfo = { 0 };
+pushConstantInfo.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+pushConstantInfo.offset = 0;
+pushConstantInfo.size = sizeof(mat4);
+
+layoutInfo.pushConstantRangeCount = 1;
+layoutInfo.pPushConstantRanges = &pushConstantInfo;
+\endcode
+
+In this example we define a single push constant range with the size of our MVP matrix. We also denote that our range will visible to the vertex shader. Some implementations will use the \a stageFlags to perform optimizations.
+
+\subsection spinning_cube_pushc_update Updating push constants
+
+Unlike uniform buffers, push constants are not part of descriptor sets. To update them you will only need to call vkCmdPushConstants() with the data you need to assign.
+
+To update the push constant with a user provided matrix:
+
+\code
+mat4 matrix = ...;
+vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(matrix), &matrix);
+\endcode
+
+\section spinning_cube_depth Depth testing
+
+Depth testing is an essential operation in 3D content. To enable it you will require a depth buffer, modifications to the graphics pipeline creation and modifications to the framebuffer and render pass.
+
+\subsection spinning_cube_depth_buff Creating the depth buffer
+
+To create the depth buffer we basically need a VkImageView, a VkImage and some VkDeviceMemory to back it up.
+
+Just like in the \ref multisampling tutorial we will use a transient VkImage with lazily allocated memory for our depth buffer. It is recommended to use lazily allocated memory in order to save memory on those implementations that support it.
+
+Of course there are some conditions that have to be met in order to skip the memory allocation. In this particular case the depth buffer will be cleared at the beginning of a subpass and discarded at the end of it. These conditions allow Mali GPUs to use the on-chip tile buffer for the depth tests without the need to back it with device memory.
+
+The first thing is to create the VkImage with VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT.
+
+\code
+static const VkFormat depthBufferFormat = VK_FORMAT_D16_UNORM;
+
+VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+imageInfo.imageType = VK_IMAGE_TYPE_2D;
+imageInfo.format = depthBufferFormat;
+imageInfo.extent.width = width;
+imageInfo.extent.height = height;
+imageInfo.extent.depth = 1;
+imageInfo.mipLevels = 1;
+imageInfo.arrayLayers = 1;
+imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+imageInfo.usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+VK_CHECK(vkCreateImage(device, &imageInfo, nullptr, &depthBufferImage));
+\endcode
+
+Next, we will try to find the best memory type for our depth image.
+
+\code
+VkMemoryRequirements memoryRequirements = { 0 };
+vkGetImageMemoryRequirements(device, depthBufferImage, &memoryRequirements);
+uint32_t memoryTypeIndex = findMemoryTypeFromRequirementsWithFallback(memoryRequirements.memoryTypeBits,
+                                                                      VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT);
+\endcode
+
+Note that some implementations may not support lazily allocated memory which is why we need a fallback just in case.
+
+Next, we actually allocate and bind the memory to the image.
+
+\code
+VkMemoryAllocateInfo memInfo = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+memInfo.allocationSize = memoryRequirements.size;
+memInfo.memoryTypeIndex = memoryTypeIndex;
+
+VK_CHECK(vkAllocateMemory(device, &memInfo, nullptr, &depthBufferMemory));
+
+VK_CHECK(
+	vkBindImageMemory(device, depthBufferImage, depthBufferMemory, 0));
+\endcode
+
+The last object that needs to be created is the depth VkImageView and its creation is similar to previous tutorials.
+
+\code
+VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+viewInfo.image = depthBufferImage;
+viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+viewInfo.format = depthBufferFormat;
+viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+viewInfo.subresourceRange.levelCount = 1;
+viewInfo.subresourceRange.layerCount = 1;
+
+VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &depthBufferView));
+\endcode
+
+\subsection spinning_cube_depth_fb Creating the framebuffer
+
+Now that we have the depth image view we need to add it as an attachment to our framebuffer.
+
+\code
+VkImageView attachments[2] = {backbuffer.view, depthBufferView};
+VkFramebufferCreateInfo fbInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+fbInfo.renderPass = renderPass;
+fbInfo.attachmentCount = 2;
+fbInfo.pAttachments = attachments;
+fbInfo.width = width;
+fbInfo.height = height;
+fbInfo.layers = 1;
+
+VK_CHECK(vkCreateFramebuffer(device, &fbInfo, nullptr, &backbuffer.framebuffer));
+\endcode
+
+The \a backbuffer.view is our color buffer and the \a depthBufferView is the depth image view created in \ref spinning_cube_depth_buff.
+
+\subsection spinning_cube_depth_rp Creating the render pass
+
+Just like the creation of the VkFramebuffer, the VkRenderPass will have to become aware of the depth buffer's existence.
+
+The first thing that needs to happen is to define two attachment descriptions, one for the color buffer and the second one for the depth buffer.
+
+\code
+VkAttachmentDescription attachments[2] = { 0 };
+
+// Setup the color attachment.
+attachments[0].format = ...;
+...
+
+// Setup the depth attachment.
+attachments[1].format = depthBufferFormat;
+attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+...
+\endcode
+
+The subpass description of our single subpass will have to be informed about the depth buffer.
+
+\code
+VkAttachmentReference colorRef = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+VkAttachmentReference depthRef = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+VkSubpassDescription subpass = { 0 };
+subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+subpass.colorAttachmentCount = 1;
+subpass.pColorAttachments = &colorRef;
+subpass.pDepthStencilAttachment = &depthRef;
+\endcode
+
+The rest of the render pass initialization is similar to \ref rotatingTexture tutorial, we only need to include both of the attachments.
+
+\code
+VkRenderPassCreateInfo rpInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+rpInfo.attachmentCount = 2;
+rpInfo.pAttachments = attachments;
+rpInfo...
+\endcode
+
+\subsection spinning_cube_depth_ppline Creating the pipeline
+
+The last piece of initialization is modifying the graphics pipeline create info. What we actually need from the pipeline is to enable depth testing, depth writing and set the depth compare function.
+
+\code
+VkPipelineDepthStencilStateCreateInfo depthStencil = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+depthStencil.depthTestEnable = true;
+depthStencil.depthWriteEnable = true;
+depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+depthStencil.depthBoundsTestEnable = false;
+depthStencil.stencilTestEnable = false;
+\endcode
+
+For this example we chose the most common depth compare operation which is VK_COMPARE_OP_LESS.
+
+*/

@@ -1,0 +1,8 @@
+add_subdirectory(hellotriangle)
+add_subdirectory(rotating_texture)
+add_subdirectory(basic_compute)
+add_subdirectory(multithreading)
+add_subdirectory(multisampling)
+add_subdirectory(spinning_cube)
+add_subdirectory(multipass)
+add_subdirectory(astc)

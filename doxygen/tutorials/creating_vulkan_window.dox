@@ -1,0 +1,269 @@
+/**
+\page creatingVulkanWindow Introduction to Vulkan on Android
+
+\brief Shows you how to create a Vulkan instance, device and swapchain on Android.
+
+\section creatingVulkanWindowNative The Native Activity
+
+To get a Vulkan surface up and running, we will use native code exclusively, using NativeActivity.
+NativeActivity is a built-in Java class in Android which lets us implement applications purely in native code.
+This is very useful for Vulkan since in order to create a Vulkan swapchain, we need an ANativeWindow handle, which NativeActivity will neatly give us.
+
+We set up a sample with this AndroidManifest.xml
+
+\code
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+      package="com.arm.vulkansdk.hellotriangle"
+      android:versionCode="1"
+      android:versionName="1.0">
+    <application android:label="@string/app_name" android:icon="@drawable/ic_launcher" android:hasCode="false">
+        <activity android:name="android.app.NativeActivity"
+                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+                  android:screenOrientation="landscape"
+                  android:label="@string/app_name">
+            <meta-data android:name="android.app.lib_name" android:value="native" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+\endcode
+
+The important part here is that we set android.app.NativeActivity as our launch activity, where we
+set the android.app.lib_name meta-data. This is so that the Android class can load our application.
+Using android:value="native", Android will load libnative.so.
+We also set the android:hasCode="false" field, since we will not need to build any Java code ourselves.
+
+Inside libnative.so, we need to include some glue code which will translate Java callbacks over to a classic main loop.
+
+\code
+// platform/android/android.cpp
+#include "android_native_app_glue.h"
+void android_main(android_app *state)
+{
+	// Implement application here!
+	for (;;)
+	{
+		...
+		ALooper_pollAll(&event);
+		event->handle();
+	}
+}
+\endcode
+
+In this mainloop, we will poll the android looper to receive and handle events.
+One of the events we will handle is obtaining a window handle. This window handle is required for creating a Vulkan swapchain.
+
+\code
+static void engineHandleCmd(android_app *pApp, int32_t cmd)
+{
+	switch (cmd)
+	{
+	case APP_CMD_INIT_WINDOW:
+		ANativeWindow *pWindow = state->pApp->window;
+		// Pass pWindow on to the application somehow.
+		break;
+	}
+}
+\endcode
+
+\section creatingVulkanContextBringup Bringing up Vulkan Instance and Device
+
+After we have obtained a native window, we can create a Vulkan instance.
+The Vulkan instance is our first entry point into Vulkan.
+
+\code
+VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
+app.pApplicationName = "Mali SDK";
+app.applicationVersion = 0;
+app.pEngineName = "Mali SDK";
+app.engineVersion = 0;
+// API version used. What matters for compatibility is major (1) and minor (0) versions.
+app.apiVersion = VK_MAKE_VERSION(1, 0, 13);
+
+VkInstanceCreateInfo instanceInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+instanceInfo.pApplicationInfo = &app;
+if (useInstanceExtensions)
+{
+	instanceInfo.enabledExtensionCount = requiredInstanceExtensions.size();
+	instanceInfo.ppEnabledExtensionNames = requiredInstanceExtensions.data();
+}
+
+VkResult res = vkCreateInstance(&instanceInfo, nullptr, &instance);
+\endcode
+
+The Vulkan instance represents the "loader". The Vulkan loader serves as a common entrypoint for Vulkan on a particular platform, and it is vendor-agnostic. From the instance, we can query the available GPUs on the system.
+
+\code
+uint32_t gpuCount = 0;
+VK_CHECK(vkEnumeratePhysicalDevices(instance, &gpuCount, nullptr));
+
+if (gpuCount < 1)
+{
+	LOGE("Failed to enumerate Vulkan physical device.\n");
+	return RESULT_ERROR_GENERIC;
+}
+
+vector<VkPhysicalDevice> gpus(gpuCount);
+VK_CHECK(vkEnumeratePhysicalDevices(instance, &gpuCount, gpus.data()));
+\endcode
+
+From here we can query the VkPhysicalDevice about particular features if we want to select one GPU among many.
+Once we have decided on a GPU to use, we can create a device from it.
+The Vulkan device will from this point on serve as our entry for dispatching work to the GPU.
+
+\code
+static const float one = 1.0f;
+VkDeviceQueueCreateInfo queueInfo = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
+queueInfo.queueFamilyIndex = graphicsQueueIndex;
+queueInfo.queueCount = 1;
+queueInfo.pQueuePriorities = &one;
+
+VkPhysicalDeviceFeatures features = { false };
+VkDeviceCreateInfo deviceInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+deviceInfo.queueCreateInfoCount = 1;
+deviceInfo.pQueueCreateInfos = &queueInfo;
+if (useDeviceExtensions)
+{
+	deviceInfo.enabledExtensionCount = requiredDeviceExtensions.size();
+	deviceInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
+}
+deviceInfo.pEnabledFeatures = &features;
+
+VK_CHECK(vkCreateDevice(gpu, &deviceInfo, nullptr, &device));
+
+if (FAILED(loadDeviceSymbols()))
+	return RESULT_ERROR_GENERIC;
+
+vkGetDeviceQueue(device, graphicsQueueIndex, 0, &queue);
+\endcode
+
+\section creatingVulkanSwapchain Creating a Vulkan Swapchain
+
+Now that we have a device, we can create a swapchain. A swapchain is the way for Vulkan applications to render
+to the screen. Vulkan can be used completely without a screen for off-line processing, and rendering to screen is done
+via a common extension, VK_KHR_swapchain.
+
+First, we need to create a Vulkan surface.
+
+\code
+VkSurfaceKHR AndroidPlatform::createSurface()
+{
+	VkSurfaceKHR surface;
+	auto fpCreateAndroidSurfaceKHR =
+	    reinterpret_cast<PFN_vkCreateAndroidSurfaceKHR>(vkGetInstanceProcAddr(instance, "vkCreateAndroidSurfaceKHR"));
+
+	if (!fpCreateAndroidSurfaceKHR)
+		return VK_NULL_HANDLE;
+
+	VkAndroidSurfaceCreateInfoKHR info = { VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR };
+	info.window = pNativeWindow;
+
+	VK_CHECK(fpCreateAndroidSurfaceKHR(instance, &info, nullptr, &surface));
+	return surface;
+}
+\endcode
+
+\code
+VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+info.surface = surface;
+...
+
+VK_CHECK(fpCreateSwapchainKHR(device, &info, nullptr, &swapchain));
+\endcode
+
+After the surface has been created, we do no longer have to deal with platform specific code in Vulkan.
+Once we have a swapchain, we can obtain the Vulkan images in the swapchain.
+
+\code
+uint32_t imageCount;
+VK_CHECK(fpGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr));
+swapchainImages.resize(imageCount);
+VK_CHECK(fpGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data()));
+\endcode
+
+For rendering to the screen, we will render to these images.
+
+\section creatingVulkanSwapchainScreen Rendering to Screen
+
+Once the swapchain is alive, we will render to screen by acquiring the swapchain,
+rendering to the appropriate image, and release it.
+
+\code
+unsigned image;
+VkResult res = fpAcquireNextImageKHR(device, swapchain, UINT64_MAX, acquireSemaphore, VK_NULL_HANDLE, image);
+\endcode
+
+We can now render to swapchainImages[image], and present it.
+
+\code
+Result WSIPlatform::presentImage(unsigned index)
+{
+	VkResult result;
+	VkPresentInfoKHR present = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+	present.swapchainCount = 1;
+	present.pSwapchains = &swapchain;
+	present.pImageIndices = &index;
+	present.pResults = &result;
+	present.waitSemaphoreCount = 1;
+	present.pWaitSemaphores = &pContext->getSwapchainReleaseSemaphore();
+
+	VkResult res = fpQueuePresentKHR(queue, &present);
+
+	if (res == VK_SUBOPTIMAL_KHR || res == VK_ERROR_OUT_OF_DATE_KHR)
+		return RESULT_ERROR_OUTDATED_SWAPCHAIN;
+	else if (res != VK_SUCCESS)
+		return RESULT_ERROR_GENERIC;
+	else
+		return RESULT_SUCCESS;
+}
+\endcode
+
+\section creatingVulkanMainLoop Running the Main Loop in android_main
+
+Once everything is initialized, we will drive our application from the main loop
+
+\code
+void android_main(android_app *state)
+{
+	// ...
+	for (;;)
+	{
+		while (ALooper_pollAll())
+		{
+			// Handle events
+		}
+
+		if (engine.pVulkanApp)
+		{
+			// Acquire next image
+			// Deal with outdated swapchain if needed
+			// Render
+			// Present
+		}
+	}
+}
+\endcode
+
+\section creatingVulkanSwapchainDealing Dealing with Out-of-Date Swapchains
+
+After acquiring a swapchain it is possible that the swapchain becomes outdated via error codes
+VK_SUBOPTIMAL_KHR and VK_ERROR_OUT_OF_DATE_KHR.
+This is possible if the surface has rotated or otherwise resized in any way.
+In this case, the swapchain must be recreated in order to obtain new VkImages for the backbuffers.
+
+It is possible to recycle the old swapchain in this case.
+
+\code
+VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+...
+info.oldSwapchain = oldSwapchain;
+VK_CHECK(fpCreateSwapchainKHR(device, &info, nullptr, &swapchain));
+if (oldSwapchain != VK_NULL_HANDLE)
+	fpDestroySwapchainKHR(device, oldSwapchain, nullptr);
+\endcode
+
+*/

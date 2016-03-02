@@ -1,0 +1,227 @@
+/**
+\page ValidationLayer Using Validation Layers for Debugging Applications
+
+\brief Introduces how to use the LunarG Validation Layers with your Vulkan application.
+
+\section VLIntro Introduction
+
+Vulkan is a layered architecture which was designed to allow easy plugging of external code to "hook" a Vulkan application.
+There is no more LD_PRELOAD or similar intrusive approaches to hook GLES implementations.
+
+\subsection VLLoader The Loader
+
+The loader is the system library which applications link against.
+The loaders job is to discover various layers and installable client drivers (ICD) and plug them
+together.
+
+\subsection VLLayers The Layer
+
+A layer is a dynamic library which partially implements the Vulkan API. The main use for layers
+is to implement validation on top of Vulkan. In release mode, drivers will assume that applications are correct,
+and invalid API calls cannot happen. This allows a driver to avoid wasting a lot of time on error checking code.
+During development, validation layers can be plugged in to add a vendor-neutral framework for debugging and validation.
+
+When layers are enabled, they may hook any Vulkan call the application wants to call.
+To report errors back to the application, there is an extension VK_EXT_debug_report which enables you to register a callback
+which may be called when a layer detects an error. From there, it is very easy to set a breakpoint in that callback and inspect the callback
+to figure out exactly where the error was made when debugging an application.
+
+\subsection VLDriver The Installable Client Driver
+
+The driver itself is the end point when calling into a Vulkan entry point. After the optional layers have done their validation,
+the driver is called in the end.
+
+\section VLBundling Bundling Validation Layers in the Android APK
+
+On desktop systems, validation layers are installed for you, but on Android, you will want to bundle the validation layers with the APK.
+The Android NDK bundles a pre-built set of validation layers which you can copy directly over to the APK.
+We can add a small CMake snippet to do this automatically.
+
+\code
+# From platform/android/CMakeLists.txt
+# Include Validation layers in the APK
+# platform-android can be replaced with any target, for example your native library
+set(layer-files ${ANDROID_NDK}/sources/third_party/vulkan/src/build-android/jniLibs/${ANDROID_ABI})
+file(GLOB layers ${layer-files}/*.so)
+foreach(layer ${layers})
+file(MAKE_DIRECTORY ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+add_custom_command(TARGET platform-android POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy ${layer} ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+endforeach()
+\endcode
+
+Once you have layers in your APK library folder, the loader will find them during layer enumeration.
+
+\section VLEnabling Enabling Validation Layers
+
+Before creating a VkInstance, we can query which layers are available on the system.
+
+\code
+uint32_t instanceLayerCount;
+VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
+vector<VkLayerProperties> instanceLayers(instanceLayerCount);
+VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.data()));
+\endcode
+
+We can also query here if any layer supports extensions, VK_EXT_debug_report is a good candidate to check for here,
+generally, the loader will expose this extension as well.
+
+\code
+// A layer could have VK_EXT_debug_report extension.
+for (auto &layer : instanceLayers)
+{
+	uint32_t count;
+	VK_CHECK(vkEnumerateInstanceExtensionProperties(layer.layerName, &count, nullptr));
+	vector<VkExtensionProperties> extensions(count);
+	VK_CHECK(vkEnumerateInstanceExtensionProperties(layer.layerName, &count, extensions.data()));
+	for (auto &ext : extensions)
+		instanceExtensions.push_back(ext);
+}
+\endcode
+
+We should now loop over the layers we found and enable the ones that are present and relevant for validation.
+
+\code
+#define NELEMS(x) (sizeof(x) / sizeof((x)[0]))
+static const char *pValidationLayers[] = {
+	"VK_LAYER_GOOGLE_threading",       "VK_LAYER_LUNARG_parameter_validation", "VK_LAYER_LUNARG_object_tracker",
+	"VK_LAYER_LUNARG_core_validation", "VK_LAYER_LUNARG_device_limits",        "VK_LAYER_LUNARG_image",
+	"VK_LAYER_LUNARG_swapchain",       "VK_LAYER_GOOGLE_unique_objects",
+};
+
+static const char *pMetaLayers[] = {
+	"VK_LAYER_LUNARG_standard_validation",
+};
+
+static void addSupportedLayers(vector<const char *> &activeLayers, const vector<VkLayerProperties> &instanceLayers,
+                               const char **ppRequested, unsigned numRequested)
+{
+	for (unsigned i = 0; i < numRequested; i++)
+	{
+		auto *layer = ppRequested[i];
+		for (auto &ext : instanceLayers)
+		{
+			if (strcmp(ext.layerName, layer) == 0)
+			{
+				activeLayers.push_back(layer);
+				break;
+			}
+		}
+	}
+}
+
+{
+	// On desktop, the LunarG loader exposes a meta-layer that combines all
+	// relevant validation layers.
+	vector<const char *> activeLayers;
+	addSupportedLayers(activeLayers, instanceLayers, pMetaLayers, NELEMS(pMetaLayers));
+
+	// On Android, add all relevant layers one by one.
+	if (activeLayers.empty())
+	{
+		addSupportedLayers(activeLayers, instanceLayers, pValidationLayers, NELEMS(pValidationLayers));
+	}
+
+	if (activeLayers.empty())
+		LOGI("Did not find validation layers.\n");
+	else
+		LOGI("Found validation layers!\n");
+}
+\endcode
+
+\note Desktop loader current exposes a meta-layer "VK_LAYER_LUNARG_standard_validation" which automatically enables all validation layers, but this doesn't yet exist for Android.
+
+Once we have found our layers, we need to enable them during both instance creation and device creation.
+
+\code
+#if ENABLE_VALIDATION_LAYERS
+	if (!activeLayers.empty())
+	{
+		instanceInfo.enabledLayerCount = activeLayers.size();
+		instanceInfo.ppEnabledLayerNames = activeLayers.data();
+		LOGI("Using Vulkan instance validation layers.\n");
+	}
+#endif
+\endcode
+
+Similar to instance, we can query the physical device for layers.
+
+\code
+uint32_t deviceLayerCount;
+VK_CHECK(vkEnumerateDeviceLayerProperties(gpu, &deviceLayerCount, nullptr));
+vector<VkLayerProperties> deviceLayers(deviceLayerCount);
+VK_CHECK(vkEnumerateDeviceLayerProperties(gpu, &deviceLayerCount, deviceLayers.data()));
+
+activeLayers.clear();
+// On desktop, the LunarG loader exposes a meta-layer that combines all
+// relevant validation layers.
+addSupportedLayers(activeLayers, deviceLayers, pMetaLayers, NELEMS(pMetaLayers));
+
+// On Android, add all relevant layers one by one.
+if (activeLayers.empty())
+{
+	addSupportedLayers(activeLayers, deviceLayers, pValidationLayers, NELEMS(pValidationLayers));
+}
+
+#if ENABLE_VALIDATION_LAYERS
+if (!activeLayers.empty())
+{
+	deviceInfo.enabledLayerCount = activeLayers.size();
+	deviceInfo.ppEnabledLayerNames = activeLayers.data();
+	LOGI("Using Vulkan device validation layers.\n");
+}
+#endif
+\endcode
+
+\section VLDebugCallback Enabling Debug Callback
+
+Once we have created the instance with layer support and enabled VK_EXT_debug_report extension, we can create a debug
+callback.
+
+\code
+VULKAN_SYMBOL_WRAPPER_LOAD_INSTANCE_EXTENSION_SYMBOL(instance, vkCreateDebugReportCallbackEXT);
+VkDebugReportCallbackCreateInfoEXT info = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT };
+info.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT |
+			 VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+
+info.pfnCallback = debugCallback;
+info.pUserData = this;
+
+if (vkCreateDebugReportCallbackEXT)
+	vkCreateDebugReportCallbackEXT(instance, &info, nullptr, &debug_callback);
+LOGI("Enabling Vulkan debug reporting.\n");
+\endcode
+
+This callback usually just logs whatever the layer reports, but it's possible to filter out messages based on severity.
+
+\code
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT type,
+                                                    uint64_t object, size_t location, int32_t messageCode,
+                                                    const char *pLayerPrefix, const char *pMessage, void *pUserData)
+{
+	if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
+	{
+		LOGE("Validation Layer: Error: %s: %s\n", pLayerPrefix, pMessage);
+	}
+	else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+	{
+		LOGE("Validation Layer: Warning: %s: %s\n", pLayerPrefix, pMessage);
+	}
+	else if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
+	{
+		LOGI("Validation Layer: Performance warning: %s: %s\n", pLayerPrefix, pMessage);
+	}
+	else
+	{
+		LOGI("Validation Layer: Information: %s: %s\n", pLayerPrefix, pMessage);
+	}
+	return VK_FALSE;
+}
+\endcode
+
+\section VKLink Links
+
+<a href="https://developer.android.com/ndk/guides/graphics/validation-layer.html">Vulkan Validation Layers - Android</a>
+
+*/
+
