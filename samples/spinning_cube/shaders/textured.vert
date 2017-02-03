@@ -22,7 +22,7 @@
 layout(location = 0) in vec3 Position;
 layout(location = 1) in vec2 TexCoord;
 
-layout(location = 0) out vec2 vTexCoord;
+layout(location = 0) out highp vec2 vTexCoord;
 
 layout(std430, push_constant) uniform PushConstants
 {
