@@ -572,7 +572,28 @@ Result WSIPlatform::initSwapchain(const SwapchainDimensions &dim)
 			return RESULT_ERROR_GENERIC;
 		}
 
-		format = formats[0];
+		format.format = VK_FORMAT_UNDEFINED;
+		for (auto &candidate : formats)
+		{
+			switch (candidate.format)
+			{
+				// Favor UNORM formats as the samples are not written for sRGB currently.
+				case VK_FORMAT_R8G8B8A8_UNORM:
+				case VK_FORMAT_B8G8R8A8_UNORM:
+				case VK_FORMAT_A8B8G8R8_UNORM_PACK32:
+					format = candidate;
+					break;
+
+				default:
+					break;
+			}
+
+			if (format.format != VK_FORMAT_UNDEFINED)
+				break;
+		}
+
+		if (format.format == VK_FORMAT_UNDEFINED)
+			format = formats[0];
 	}
 
 	VkExtent2D swapchainSize;
