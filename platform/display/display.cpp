@@ -76,6 +76,8 @@ VkSurfaceKHR DisplayPlatform::createSurface()
 		VkDisplayModeKHR mode;
 		uint32_t plane;
 		uint32_t planeStack;
+		uint32_t width;
+		uint32_t height;
 	};
 	vector<Candidate> candidates;
 
@@ -148,7 +150,8 @@ VkSurfaceKHR DisplayPlatform::createSurface()
 				{
 					// We found a candidate.
 					candidates.push_back(
-					    { display, mode.displayMode, plane, planeProperties[plane].currentStackIndex });
+							{ display, mode.displayMode, plane, planeProperties[plane].currentStackIndex,
+							  mode.parameters.visibleRegion.width, mode.parameters.visibleRegion.height });
 				}
 			}
 		}
@@ -168,8 +171,10 @@ VkSurfaceKHR DisplayPlatform::createSurface()
 	info.planeStackIndex = candidates.front().planeStack;
 	info.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	info.alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
-	info.imageExtent.width = preferredWidth;
-	info.imageExtent.height = preferredHeight;
+	info.imageExtent.width = candidates.front().width;
+	info.imageExtent.height = candidates.front().height;
+
+	LOGI("Using display mode: %u x %u.\n", info.imageExtent.width, info.imageExtent.height);
 
 	VK_CHECK(vkCreateDisplayPlaneSurfaceKHR(instance, &info, nullptr, &surface));
 	return surface;
