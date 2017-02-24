@@ -270,9 +270,9 @@ Result PNGPlatform::presentImage(unsigned index)
 	vkBeginCommandBuffer(cmd, &beginInfo);
 
 	// Transition image back from PRESENT_SRC_KHR to TRANSFER_SRC_OPTIMAL.
-	imageMemoryBarrier(cmd, swapchainImages[index], 0, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-	                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-	                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+	imageMemoryBarrier(cmd, swapchainImages[index], VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+	                   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+	                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
 	// Copy from the image to a host-visible buffer.
 	VkBufferImageCopy region = { 0 };
