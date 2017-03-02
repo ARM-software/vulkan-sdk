@@ -2,6 +2,12 @@
 
 ![Mali Vulkan SDK banner](http://malideveloper.arm.com/wp-content/uploads/2016/03/vulkanSDKbanner.png)
 
+## Introduction
+
+The Mali Vulkan Software Development Kit is a collection of resources to help you build Vulkan applications
+for a platform with a Mali GPU and an ARM processor.
+You can use it for creating new applications, training, and exploration of implementation possibilities.
+
 ## Setting up development environment
 
 ### Minimum NDK requirements
