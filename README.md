@@ -20,6 +20,10 @@ It is recommended to use the NDK provided in Android Studio.
 The Mali Vulkan SDK has been tested to build on Linux (Android Studio) and Windows (Android Studio).
 Partial support for running on Linux desktop is also included.
 
+### Android requirements
+
+Not all Android phones will support Vulkan due to the GPU chipset on the device. To make sure your Android device has the Vulkan API supported download the [Hardware CapsViewer for Vulkan](https://play.google.com/store/apps/details?id=de.saschawillems.vulkancapsviewer&hl=en) app to verify your device's statuss.
+
 ### License
 
 The software is provided under an MIT license. Contributions to this project are accepted under the same license.
