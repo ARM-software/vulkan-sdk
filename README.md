@@ -22,7 +22,7 @@ Partial support for running on Linux desktop is also included.
 
 ### Android requirements
 
-Not all Android phones will support Vulkan due to the GPU chipset on the device. To make sure your Android device has the Vulkan API supported download the [Hardware CapsViewer for Vulkan](https://play.google.com/store/apps/details?id=de.saschawillems.vulkancapsviewer&hl=en) app to verify your device's statuss.
+Not all Android devices support Vulkan. To make sure your Android device has the Vulkan API supported download the [Hardware CapsViewer for Vulkan](https://play.google.com/store/apps/details?id=de.saschawillems.vulkancapsviewer&hl=en) app to verify your device's status.
 
 ### License
 
