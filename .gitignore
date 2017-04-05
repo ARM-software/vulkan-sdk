@@ -25,4 +25,5 @@ gradle
 /samples/multithreading/multithreading
 /samples/multisampling/multisampling
 /samples/spinning_cube/spinning_cube
+/samples/mipmapping/mipmapping
 /docs
