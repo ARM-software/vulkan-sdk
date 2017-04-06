@@ -338,8 +338,8 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 
 	// Finally, create a sampler.
 	VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
-	samplerInfo.magFilter = VK_FILTER_LINEAR;
-	samplerInfo.minFilter = VK_FILTER_LINEAR;
+	samplerInfo.magFilter = VK_FILTER_NEAREST;
+	samplerInfo.minFilter = VK_FILTER_NEAREST;
 	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -472,74 +472,45 @@ void Mipmapping::initRenderPass(VkFormat format)
 
 void Mipmapping::initVertexBuffer()
 {
-	// Create a pyramid of quads.
-	static const Vertex vertexData[] = {
-		// 1x1 quad.
-		{
-			vec2(-0.5f, 0.5f), vec2(0.0f, 0.0f),
-		},
-		{
-			vec2(-0.5f, -0.5f), vec2(0.0f, 1.0f),
-		},
-		{
-			vec2(0.5f, 0.5f), vec2(1.0f, 0.0f),
-		},
-		{
-			vec2(0.5f, -0.5f), vec2(1.0f, 1.0f),
-		},
+	static vector<Vertex> vertexData;
+	static vector<uint16_t> indexData;
+	unsigned baseIndex = 0;
+	float aspect = 1.777f;
 
-		// 0.5x0.5 quad.
-		{
-			vec2(-0.25f, 0.25f), vec2(0.0f, 0.0f),
-		},
-		{
-			vec2(-0.25f, -0.25f), vec2(0.0f, 1.0f),
-		},
-		{
-			vec2(0.25f, 0.25f), vec2(1.0f, 0.0f),
-		},
-		{
-			vec2(0.25f, -0.25f), vec2(1.0f, 1.0f),
-		},
+	// Create a stack of quads of decreasing size.
+	for (unsigned i = 0; i < 10; i++)
+	{
+		float quadSize = (float) 1 / (1 << i); // 2 ^ (-i)
+		vertexData.push_back( { vec2(-1.0f, -1.0f + 2*quadSize), vec2(0.0f, 0.0f) } );
+		vertexData.push_back( { vec2(-1.0f, -1.0f + quadSize), vec2(0.0f, 1.0f) } );
+		vertexData.push_back( { vec2(-1.0f + quadSize/aspect, -1.0f + 2*quadSize), vec2(1.0f, 0.0f) } );
+		vertexData.push_back( { vec2(-1.0f + quadSize/aspect, -1.0f + quadSize), vec2(1.0f, 1.0f) } );
 
-		// 0.25x0.25 quad.
-		{
-			vec2(-0.125f, 0.125f), vec2(0.0f, 0.0f),
-		},
-		{
-			vec2(-0.125f, -0.125f), vec2(0.0f, 1.0f),
-		},
-		{
-			vec2(0.125f, 0.125f), vec2(1.0f, 0.0f),
-		},
-		{
-			vec2(0.125f, -0.125f), vec2(1.0f, 1.0f),
-		},
+		indexData.push_back(baseIndex);
+		indexData.push_back(baseIndex + 1);
+		indexData.push_back(baseIndex + 2);
+		indexData.push_back(baseIndex + 3);
+		indexData.push_back(baseIndex + 2);
+		indexData.push_back(baseIndex + 1);
+		baseIndex += 4;
+	}
 
-		// 0.125x0.125 quad.
-		{
-			vec2(-0.0625f, 0.0625f), vec2(0.0f, 0.0f),
-		},
-		{
-			vec2(-0.0625f, -0.0625f), vec2(0.0f, 1.0f),
-		},
-		{
-			vec2(0.0625f, 0.0625f), vec2(1.0f, 0.0f),
-		},
-		{
-			vec2(0.0625f, -0.0625f), vec2(1.0f, 1.0f),
-		},
-	};
+	// Create a single large quad to show mip level stretching.
+	vertexData.push_back( { vec2(+1.0f - 2.0f/aspect, +1.0f), vec2(0.0f, 0.0f) } );
+	vertexData.push_back( { vec2(+1.0f - 2.0f/aspect, -1.0f), vec2(0.0f, 1.0f) } );
+	vertexData.push_back( { vec2(+1.0f, +1.0f), vec2(1.0f, 0.0f) } );
+	vertexData.push_back( { vec2(+1.0f, -1.0f), vec2(1.0f, 1.0f) } );
 
-	static const uint16_t indexData[] = {
-		 0,  1,  2,  3,  2,  1,
-		 4,  5,  6,  7,  6,  5,
-		 8,  9, 10, 11, 10,  9,
-		12, 13, 14, 15, 14, 13,
-	};
+	indexData.push_back(baseIndex);
+	indexData.push_back(baseIndex + 1);
+	indexData.push_back(baseIndex + 2);
+	indexData.push_back(baseIndex + 3);
+	indexData.push_back(baseIndex + 2);
+	indexData.push_back(baseIndex + 1);
+	baseIndex += 4;
 
-	vertexBuffer = createBuffer(vertexData, sizeof(vertexData), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-	indexBuffer = createBuffer(indexData, sizeof(indexData), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	vertexBuffer = createBuffer(vertexData.data(), sizeof(vertexData[0]) * vertexData.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+	indexBuffer = createBuffer(indexData.data(), sizeof(indexData[0]) * indexData.size(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 }
 
 void Mipmapping::initPipelineLayout()
@@ -775,11 +746,11 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	float textureAspect = float(texture.width) / texture.height;
 
 	// Simple orthographic projection.
-	mat4 proj = ortho(aspect * -1.0f, aspect * 1.0f, -1.0f, 1.0f, 0.0f, 1.0f);
+	mat4 proj = ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f);
 
 	// Create a simple rotation matrix which rotates around the Z axis
 	// and write it to the mapped memory.
-	accumulatedTime += deltaTime;
+	// accumulatedTime += deltaTime;
 	mat4 rotation = rotate(accumulatedTime, vec3(0.0f, 0.0f, 1.0f));
 
 	// Scale the quad such that it matches the aspect ratio of our texture.
@@ -790,7 +761,7 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	vkUnmapMemory(pContext->getDevice(), frame.uniformBuffer.memory);
 
 	// Draw the quads.
-	vkCmdDrawIndexed(cmd, 6*4, 1, 0, 0, 0);
+	vkCmdDrawIndexed(cmd, 6*11, 1, 0, 0, 0);
 
 	// Complete render pass.
 	vkCmdEndRenderPass(cmd);
