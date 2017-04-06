@@ -23,7 +23,8 @@ layout(location = 0) in vec2 Position;
 layout(location = 1) in vec2 TexCoord;
 
 layout(location = 0) out highp vec2 vTexCoord;
-layout(location = 1) out float fixedMipLevel;
+layout(location = 1) out float isHighlighted;
+layout(location = 2) out float fixedMipLevel;
 
 layout(set = 0, binding = 1, std140) uniform UBO
 {
@@ -34,6 +35,12 @@ void main()
 {
     gl_Position = MVP * vec4(Position, 0.0, 1.0);
     vTexCoord = TexCoord;
+
+	if (int(gl_VertexIndex / 4) == 1)
+		isHighlighted = 1.0;
+	else
+		isHighlighted = 0.0;
+
 	if (gl_VertexIndex >= 40)
 		fixedMipLevel = 2.0;
 	else
