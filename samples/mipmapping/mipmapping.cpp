@@ -477,14 +477,27 @@ void Mipmapping::initVertexBuffer()
 	unsigned baseIndex = 0;
 	float aspect = 1.777f;
 
-	// Create a stack of quads of decreasing size.
-	for (unsigned i = 0; i < 10; i++)
+	// Create a set of quads of decreasing size.
+	vertexData.push_back( { vec2(-0.8f, +0.75f), vec2(0.0f, 0.0f) } );
+	vertexData.push_back( { vec2(-0.8f, -0.25f), vec2(0.0f, 1.0f) } );
+	vertexData.push_back( { vec2(-0.8f + 1.0f/aspect, +0.75f), vec2(1.0f, 0.0f) } );
+	vertexData.push_back( { vec2(-0.8f + 1.0f/aspect, -0.25f), vec2(1.0f, 1.0f) } );
+
+	indexData.push_back(baseIndex);
+	indexData.push_back(baseIndex + 1);
+	indexData.push_back(baseIndex + 2);
+	indexData.push_back(baseIndex + 3);
+	indexData.push_back(baseIndex + 2);
+	indexData.push_back(baseIndex + 1);
+	baseIndex += 4;
+
+	for (unsigned i = 1; i < 10; i++)
 	{
 		float quadSize = (float) 1 / (1 << i); // 2 ^ (-i)
-		vertexData.push_back( { vec2(-1.0f, -1.0f + 2*quadSize), vec2(0.0f, 0.0f) } );
-		vertexData.push_back( { vec2(-1.0f, -1.0f + quadSize), vec2(0.0f, 1.0f) } );
-		vertexData.push_back( { vec2(-1.0f + quadSize/aspect, -1.0f + 2*quadSize), vec2(1.0f, 0.0f) } );
-		vertexData.push_back( { vec2(-1.0f + quadSize/aspect, -1.0f + quadSize), vec2(1.0f, 1.0f) } );
+		vertexData.push_back( { vec2(-0.8f + (1.0f - 2*quadSize)/aspect, -0.25f), vec2(0.0f, 0.0f) } );
+		vertexData.push_back( { vec2(-0.8f + (1.0f - 2*quadSize)/aspect, -0.25f - quadSize), vec2(0.0f, 1.0f) } );
+		vertexData.push_back( { vec2(-0.8f + (1.0f - quadSize)/aspect, -0.25f), vec2(1.0f, 0.0f) } );
+		vertexData.push_back( { vec2(-0.8f + (1.0f - quadSize)/aspect, -0.25f - quadSize), vec2(1.0f, 1.0f) } );
 
 		indexData.push_back(baseIndex);
 		indexData.push_back(baseIndex + 1);
@@ -496,10 +509,10 @@ void Mipmapping::initVertexBuffer()
 	}
 
 	// Create a single large quad to show mip level stretching.
-	vertexData.push_back( { vec2(+1.0f - 2.0f/aspect, +1.0f), vec2(0.0f, 0.0f) } );
-	vertexData.push_back( { vec2(+1.0f - 2.0f/aspect, -1.0f), vec2(0.0f, 1.0f) } );
-	vertexData.push_back( { vec2(+1.0f, +1.0f), vec2(1.0f, 0.0f) } );
-	vertexData.push_back( { vec2(+1.0f, -1.0f), vec2(1.0f, 1.0f) } );
+	vertexData.push_back( { vec2(+0.85f - 1.5f/aspect, +0.75f), vec2(0.0f, 0.0f) } );
+	vertexData.push_back( { vec2(+0.85f - 1.5f/aspect, -0.75f), vec2(0.0f, 1.0f) } );
+	vertexData.push_back( { vec2(+0.85f, +0.75f), vec2(1.0f, 0.0f) } );
+	vertexData.push_back( { vec2(+0.85f, -0.75f), vec2(1.0f, 1.0f) } );
 
 	indexData.push_back(baseIndex);
 	indexData.push_back(baseIndex + 1);
