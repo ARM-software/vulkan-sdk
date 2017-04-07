@@ -82,6 +82,15 @@ struct MipLevel
 	unsigned width, height;
 };
 
+struct UniformBufferData
+{
+	// The MVP matrix.
+	mat4 mvp;
+
+	// The index of the quad to be highlighted.
+	uint32_t highlightedQuad;
+};
+
 // We have one PerFrame struct for every swapchain image.
 // Every swapchain image will have its own uniform buffer and descriptor set.
 struct PerFrame
@@ -677,7 +686,9 @@ bool Mipmapping::initialize(Context *pContext)
 	initPipelineLayout();
 
 	// Load mipmapped texture.
-	vector<char const *> pPaths = { "textures/icon_512.png", "textures/icon_256.png", "textures/icon_128.png", "textures/icon_64.png" };
+	vector<char const *> pPaths = { "textures/icon_512.png", "textures/icon_256.png", "textures/icon_128.png", "textures/icon_64.png",
+	                                "textures/icon_32.png", "textures/icon_16.png", "textures/icon_8.png", "textures/icon_4.png",
+	                                "textures/icon_2.png", "textures/icon_1.png" };
 	texture = createMipmappedTextureFromAssets(pPaths);
 
 	// Create a pipeline cache (although we'll only create one pipeline).
@@ -751,9 +762,9 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
                             nullptr);
 
 	// Update the uniform buffers memory.
-	mat4 *pMatrix = nullptr;
-	VK_CHECK(vkMapMemory(pContext->getDevice(), frame.uniformBuffer.memory, 0, sizeof(mat4), 0,
-                         reinterpret_cast<void **>(&pMatrix)));
+	UniformBufferData *bufData = nullptr;
+	VK_CHECK(vkMapMemory(pContext->getDevice(), frame.uniformBuffer.memory, 0, sizeof(UniformBufferData), 0,
+                         reinterpret_cast<void **>(&bufData)));
 
 	float aspect = float(width) / height;
 	float textureAspect = float(texture.width) / texture.height;
@@ -761,16 +772,13 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	// Simple orthographic projection.
 	mat4 proj = ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f);
 
-	// Create a simple rotation matrix which rotates around the Z axis
-	// and write it to the mapped memory.
-	// accumulatedTime += deltaTime;
-	mat4 rotation = rotate(accumulatedTime, vec3(0.0f, 0.0f, 1.0f));
-
-	// Scale the quad such that it matches the aspect ratio of our texture.
-	mat4 model = scale(rotation, vec3(textureAspect, 1.0f, 1.0f));
-
 	// Fix up the projection matrix so it matches what Vulkan expects.
-	*pMatrix = vulkanStyleProjection(proj) * model;
+	bufData->mvp = vulkanStyleProjection(proj);
+
+	// Select a quad based on the elapsed time.
+	accumulatedTime += deltaTime;
+	bufData->highlightedQuad = (uint32_t) floor(accumulatedTime) % 10;
+
 	vkUnmapMemory(pContext->getDevice(), frame.uniformBuffer.memory);
 
 	// Draw the quads.
@@ -859,7 +867,7 @@ void Mipmapping::initPerFrame(unsigned numBackbuffers)
 		// Create one uniform buffer per swapchain frame. We will update the uniform buffer every frame
 		// and we don't want to stomp on a uniform buffer already in flight.
 		PerFrame frame;
-		frame.uniformBuffer = createBuffer(nullptr, sizeof(mat4), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+		frame.uniformBuffer = createBuffer(nullptr, sizeof(UniformBufferData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
 		// Allocate descriptor set from a pool.
 		static const VkDescriptorPoolSize poolSizes[2] = {
@@ -883,7 +891,7 @@ void Mipmapping::initPerFrame(unsigned numBackbuffers)
 			{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
 		};
 
-		VkDescriptorBufferInfo bufferInfo = { frame.uniformBuffer.buffer, 0, sizeof(mat4) };
+		VkDescriptorBufferInfo bufferInfo = { frame.uniformBuffer.buffer, 0, sizeof(UniformBufferData) };
 		VkDescriptorImageInfo imageInfo = { texture.sampler, texture.view, texture.layout };
 
 		writes[0].dstSet = frame.descriptorSet;

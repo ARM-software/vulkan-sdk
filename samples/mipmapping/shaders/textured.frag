@@ -22,7 +22,7 @@
 precision mediump float;
 
 layout(location = 0) in highp vec2 vTexCoord;
-layout(location = 1) in float isHighlighted;
+layout(location = 1) in float highlight;
 layout(location = 2) in float fixedMipLevel;
 
 layout(location = 0) out vec4 FragColor;
@@ -32,10 +32,20 @@ layout(set = 0, binding = 0) uniform sampler2D sTexture;
 void main()
 {
 	if (fixedMipLevel > -0.5)
+	{
 		FragColor = textureLod(sTexture, vTexCoord, fixedMipLevel);
+	}
 	else
-		if (isHighlighted > 0.5 && (vTexCoord.x < 0.02 || vTexCoord.x > 0.98 || vTexCoord.y < 0.02 || vTexCoord.y > 0.98))
+	{
+		if (highlight > 6.5 && (vTexCoord.x < 0.2 || vTexCoord.x > 0.8 || vTexCoord.y < 0.2 || vTexCoord.y > 0.8)
+			|| highlight > 4.5 && (vTexCoord.x < 0.05 || vTexCoord.x > 0.95 || vTexCoord.y < 0.05 || vTexCoord.y > 0.95)
+			|| highlight > 0.5 && (vTexCoord.x < 0.02 || vTexCoord.x > 0.98 || vTexCoord.y < 0.02 || vTexCoord.y > 0.98))
+		{
 			FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+		}
 		else
+		{
 			FragColor = texture(sTexture, vTexCoord);
+		}
+	}
 }
