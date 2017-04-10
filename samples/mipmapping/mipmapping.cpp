@@ -139,7 +139,7 @@ private:
 
 	Buffer vertexBuffer;
 	Buffer indexBuffer;
-	Texture texture;
+	Texture textures[2];
 
 	Buffer createBuffer(const void *pInitial, size_t size, VkFlags usage);
 	Texture createMipmappedTextureFromAssets(vector<char const *> pPaths, bool generateMipLevels = false);
@@ -742,11 +742,15 @@ bool Mipmapping::initialize(Context *pContext)
 	// Initialize the pipeline layout.
 	initPipelineLayout();
 
-	// Load mipmapped texture.
-	vector<char const *> pPaths = { "textures/icon_512.png", "textures/icon_256.png", "textures/icon_128.png", "textures/icon_64.png",
-	                                "textures/icon_32.png", "textures/icon_16.png", "textures/icon_8.png", "textures/icon_4.png",
-	                                "textures/icon_2.png", "textures/icon_1.png" };
-	texture = createMipmappedTextureFromAssets(pPaths, true);
+	// Load pre-mipmapped texture.
+	vector<char const *> pPaths = { "textures/T_Speaker_512.png", "textures/T_Speaker_256.png", "textures/T_Speaker_128.png",
+	                                "textures/T_Speaker_64.png",  "textures/T_Speaker_32.png",  "textures/T_Speaker_16.png",
+                                    "textures/T_Speaker_8.png",   "textures/T_Speaker_4.png",   "textures/T_Speaker_2.png",
+                                    "textures/T_Speaker_1.png" };
+	textures[0] = createMipmappedTextureFromAssets(pPaths, false);
+
+	// Load texture and generate mipmaps.
+	textures[1] = createMipmappedTextureFromAssets({ "textures/T_Pedestal_512.png" }, true);
 
 	// Create a pipeline cache (although we'll only create one pipeline).
 	VkPipelineCacheCreateInfo pipelineCacheInfo = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
@@ -814,6 +818,22 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	// Bind index buffer.
 	vkCmdBindIndexBuffer(cmd, indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
 
+	// Select one of the two textures based on the elapsed time.
+	accumulatedTime += deltaTime;
+	unsigned texture_id = (unsigned) floor(accumulatedTime) / 10 % 2;
+
+	// Update the texture descriptor.
+	VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+	VkDescriptorImageInfo imageInfo = { textures[texture_id].sampler, textures[texture_id].view, textures[texture_id].layout };
+
+	write.dstSet = frame.descriptorSet;
+	write.dstBinding = 0;
+	write.descriptorCount = 1;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	write.pImageInfo = &imageInfo;
+
+	vkUpdateDescriptorSets(pContext->getDevice(), 1, &write, 0, nullptr);
+
 	// Bind the descriptor set.
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &frame.descriptorSet, 0,
                             nullptr);
@@ -823,9 +843,6 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	VK_CHECK(vkMapMemory(pContext->getDevice(), frame.uniformBuffer.memory, 0, sizeof(UniformBufferData), 0,
                          reinterpret_cast<void **>(&bufData)));
 
-	float aspect = float(width) / height;
-	float textureAspect = float(texture.width) / texture.height;
-
 	// Simple orthographic projection.
 	mat4 proj = ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f);
 
@@ -833,7 +850,6 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	bufData->mvp = vulkanStyleProjection(proj);
 
 	// Select a quad based on the elapsed time.
-	accumulatedTime += deltaTime;
 	bufData->highlightedQuad = (uint32_t) floor(accumulatedTime) % 10;
 
 	vkUnmapMemory(pContext->getDevice(), frame.uniformBuffer.memory);
@@ -900,11 +916,14 @@ void Mipmapping::terminate()
 	vkDestroyBuffer(device, indexBuffer.buffer, nullptr);
 	vkFreeMemory(device, indexBuffer.memory, nullptr);
 
-	// Texture
-	vkDestroyImageView(device, texture.view, nullptr);
-	vkDestroyImage(device, texture.image, nullptr);
-	vkDestroySampler(device, texture.sampler, nullptr);
-	vkFreeMemory(device, texture.memory, nullptr);
+	// Textures
+	for (auto &texture : textures)
+	{
+		vkDestroyImageView(device, texture.view, nullptr);
+		vkDestroyImage(device, texture.image, nullptr);
+		vkDestroySampler(device, texture.sampler, nullptr);
+		vkFreeMemory(device, texture.memory, nullptr);
+	}
 
 	// Per-frame resources
 	termPerFrame();
@@ -949,7 +968,7 @@ void Mipmapping::initPerFrame(unsigned numBackbuffers)
 		};
 
 		VkDescriptorBufferInfo bufferInfo = { frame.uniformBuffer.buffer, 0, sizeof(UniformBufferData) };
-		VkDescriptorImageInfo imageInfo = { texture.sampler, texture.view, texture.layout };
+		VkDescriptorImageInfo imageInfo = { textures[0].sampler, textures[0].view, textures[0].layout };
 
 		writes[0].dstSet = frame.descriptorSet;
 		writes[0].dstBinding = 0;
