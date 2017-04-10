@@ -541,13 +541,12 @@ void Mipmapping::initVertexBuffer()
 	static vector<Vertex> vertexData;
 	static vector<uint16_t> indexData;
 	unsigned baseIndex = 0;
-	float aspect = 1.777f;
 
 	// Create a set of quads of decreasing size.
-	vertexData.push_back( { vec2(-0.8f, +0.75f), vec2(0.0f, 0.0f) } );
-	vertexData.push_back( { vec2(-0.8f, -0.25f), vec2(0.0f, 1.0f) } );
-	vertexData.push_back( { vec2(-0.8f + 1.0f/aspect, +0.75f), vec2(1.0f, 0.0f) } );
-	vertexData.push_back( { vec2(-0.8f + 1.0f/aspect, -0.25f), vec2(1.0f, 1.0f) } );
+	vertexData.push_back( { vec2(-1.35f, +0.75f), vec2(0.0f, 0.0f) } );
+	vertexData.push_back( { vec2(-1.35f, -0.25f), vec2(0.0f, 1.0f) } );
+	vertexData.push_back( { vec2(-0.35f, +0.75f), vec2(1.0f, 0.0f) } );
+	vertexData.push_back( { vec2(-0.35f, -0.25f), vec2(1.0f, 1.0f) } );
 
 	indexData.push_back(baseIndex);
 	indexData.push_back(baseIndex + 1);
@@ -560,10 +559,10 @@ void Mipmapping::initVertexBuffer()
 	for (unsigned i = 1; i < 10; i++)
 	{
 		float quadSize = (float) 1 / (1 << i); // 2 ^ (-i)
-		vertexData.push_back( { vec2(-0.8f + (1.0f - 2*quadSize)/aspect, -0.25f), vec2(0.0f, 0.0f) } );
-		vertexData.push_back( { vec2(-0.8f + (1.0f - 2*quadSize)/aspect, -0.25f - quadSize), vec2(0.0f, 1.0f) } );
-		vertexData.push_back( { vec2(-0.8f + (1.0f - quadSize)/aspect, -0.25f), vec2(1.0f, 0.0f) } );
-		vertexData.push_back( { vec2(-0.8f + (1.0f - quadSize)/aspect, -0.25f - quadSize), vec2(1.0f, 1.0f) } );
+		vertexData.push_back( { vec2(-0.35f - 2*quadSize, -0.25f), vec2(0.0f, 0.0f) } );
+		vertexData.push_back( { vec2(-0.35f - 2*quadSize, -0.25f - quadSize), vec2(0.0f, 1.0f) } );
+		vertexData.push_back( { vec2(-0.35f - quadSize, -0.25f), vec2(1.0f, 0.0f) } );
+		vertexData.push_back( { vec2(-0.35f - quadSize, -0.25f - quadSize), vec2(1.0f, 1.0f) } );
 
 		indexData.push_back(baseIndex);
 		indexData.push_back(baseIndex + 1);
@@ -575,10 +574,10 @@ void Mipmapping::initVertexBuffer()
 	}
 
 	// Create a single large quad to show mip level stretching.
-	vertexData.push_back( { vec2(+0.85f - 1.5f/aspect, +0.75f), vec2(0.0f, 0.0f) } );
-	vertexData.push_back( { vec2(+0.85f - 1.5f/aspect, -0.75f), vec2(0.0f, 1.0f) } );
-	vertexData.push_back( { vec2(+0.85f, +0.75f), vec2(1.0f, 0.0f) } );
-	vertexData.push_back( { vec2(+0.85f, -0.75f), vec2(1.0f, 1.0f) } );
+	vertexData.push_back( { vec2(+0.0f, +0.75f), vec2(0.0f, 0.0f) } );
+	vertexData.push_back( { vec2(+0.0f, -0.75f), vec2(0.0f, 1.0f) } );
+	vertexData.push_back( { vec2(+1.5f, +0.75f), vec2(1.0f, 0.0f) } );
+	vertexData.push_back( { vec2(+1.5f, -0.75f), vec2(1.0f, 1.0f) } );
 
 	indexData.push_back(baseIndex);
 	indexData.push_back(baseIndex + 1);
@@ -844,7 +843,8 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
                          reinterpret_cast<void **>(&bufData)));
 
 	// Simple orthographic projection.
-	mat4 proj = ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f);
+	float aspect = float(width) / height;
+	mat4 proj = ortho(aspect * -1.0f, aspect * 1.0f, -1.0f, 1.0f, 0.0f, 1.0f);
 
 	// Fix up the projection matrix so it matches what Vulkan expects.
 	bufData->mvp = vulkanStyleProjection(proj);
