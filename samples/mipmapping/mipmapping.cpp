@@ -142,7 +142,7 @@ private:
 	Texture texture;
 
 	Buffer createBuffer(const void *pInitial, size_t size, VkFlags usage);
-	Texture createMipmappedTextureFromAssets(vector<char const *> pPaths);
+	Texture createMipmappedTextureFromAssets(vector<char const *> pPaths, bool generateMipLevels = false);
 
 	uint32_t findMemoryTypeFromRequirements(uint32_t deviceRequirements, uint32_t     rements);
 	uint32_t findMemoryTypeFromRequirementsWithFallback(uint32_t deviceRequirements, uint32_t hostRequirements);
@@ -212,7 +212,7 @@ uint32_t Mipmapping::findMemoryTypeFromRequirementsWithFallback(uint32_t deviceR
 	}
 }
 
-Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths)
+Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths, bool generateMipLevels)
 {
 	// We first create a vector of staging buffers, containing the images for each mip level.
 	//
@@ -237,6 +237,12 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 		mipLevels.push_back(mipLevel);
 	}
 
+	unsigned mipLevelCount = mipLevels.size();
+	if (generateMipLevels)
+	{
+		mipLevelCount = floor(std::log2(std::min(mipLevels[0].width, mipLevels[0].height))) + 1;
+	}
+
 	VkDevice device = pContext->getDevice();
 	VkImage image;
 	VkDeviceMemory memory;
@@ -248,12 +254,12 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	info.extent.width = mipLevels[0].width;
 	info.extent.height = mipLevels[0].height;
 	info.extent.depth = 1;
-	info.mipLevels = mipLevels.size();
+	info.mipLevels = mipLevelCount;
 	info.arrayLayers = 1;
 	info.samples = VK_SAMPLE_COUNT_1_BIT;
 	info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	info.usage = (generateMipLevels ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0) | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 	// Create texture.
@@ -288,7 +294,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
 	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	viewInfo.subresourceRange.levelCount = mipLevels.size();
+	viewInfo.subresourceRange.levelCount = mipLevelCount;
 	viewInfo.subresourceRange.layerCount = 1;
 
 	VkImageView view;
@@ -307,30 +313,81 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	// We do not need to wait for anything to make the transition, so use TOP_OF_PIPE_BIT as the srcStageMask.
 	imageMemoryBarrier(cmd, image, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       mipLevels.size());
+                       mipLevelCount);
 
-	for (unsigned i = 0; i < mipLevels.size(); i++)
+	VkBufferImageCopy region;
+	memset(&region, 0, sizeof(region));
+	region.bufferOffset = 0;
+	region.bufferRowLength = mipLevels[0].width;
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.layerCount = 1;
+	region.imageExtent.width = mipLevels[0].width;
+	region.imageExtent.height = mipLevels[0].height;
+	region.imageExtent.depth = 1;
+
+	// Copy the buffer for the first mip level to our optimally tiled image.
+	vkCmdCopyBufferToImage(cmd, mipLevels[0].stagingBuffer.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+	if (generateMipLevels)
 	{
-		VkBufferImageCopy region;
-		memset(&region, 0, sizeof(region));
-		region.bufferOffset = 0;
-		region.bufferRowLength = mipLevels[i].width;
-		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		region.imageSubresource.mipLevel = i;
-		region.imageSubresource.layerCount = 1;
-		region.imageExtent.width = mipLevels[i].width;
-		region.imageExtent.height = mipLevels[i].height;
-		region.imageExtent.depth = 1;
+		// Transition first mip level into a TRANSFER_SRC_OPTIMAL layout.
+		imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+						   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+						   1);
 
-		// Copy the buffer for each mip level to our optimally tiled image.
-		vkCmdCopyBufferToImage(cmd, mipLevels[i].stagingBuffer.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+		for (unsigned i = 1; i < mipLevelCount; i++)
+		{
+			VkImageBlit region;
+			memset(&region, 0, sizeof(region));
+			region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.srcSubresource.mipLevel = 0;
+			region.srcSubresource.layerCount = 1;
+			region.srcOffsets[1].x = mipLevels[0].width;
+			region.srcOffsets[1].y = mipLevels[0].height;
+			region.srcOffsets[1].z = 1;
+			region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.dstSubresource.mipLevel = i;
+			region.dstSubresource.layerCount = 1;
+			region.dstOffsets[1].x = (mipLevels[0].width >> i);
+			region.dstOffsets[1].y = (mipLevels[0].height >> i);
+			region.dstOffsets[1].z = 1;
+
+			// Generate a mip level by copying and scaling the first one.
+			vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+		}
+
+		// Transition back the first mip level into a TRANSFER_DST_OPTIMAL layout.
+		// We do not need to wait for anything to make the transition, so use TOP_OF_PIPE_BIT as the srcStageMask.
+		imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+						   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+						   1);
+	}
+	else
+	{
+		for (unsigned i = 1; i < mipLevelCount; i++)
+		{
+			VkBufferImageCopy region;
+			memset(&region, 0, sizeof(region));
+			region.bufferOffset = 0;
+			region.bufferRowLength = mipLevels[i].width;
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.mipLevel = i;
+			region.imageSubresource.layerCount = 1;
+			region.imageExtent.width = mipLevels[i].width;
+			region.imageExtent.height = mipLevels[i].height;
+			region.imageExtent.depth = 1;
+
+			// Copy the buffer for each mip level to our optimally tiled image.
+			vkCmdCopyBufferToImage(cmd, mipLevels[i].stagingBuffer.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+		}
 	}
 
 	// Wait for all transfers to complete before we let any fragment shading begin.
 	imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                       mipLevels.size());
+                       mipLevelCount);
 
 	VK_CHECK(vkEndCommandBuffer(cmd));
 	pContext->submit(cmd);
@@ -357,7 +414,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	samplerInfo.maxAnisotropy = 1.0f;
 	samplerInfo.compareEnable = false;
 	samplerInfo.minLod = 0.0f;
-	samplerInfo.maxLod = float(mipLevels.size());
+	samplerInfo.maxLod = float(mipLevelCount);
 
 	VkSampler sampler;
 	VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &sampler));
@@ -689,7 +746,7 @@ bool Mipmapping::initialize(Context *pContext)
 	vector<char const *> pPaths = { "textures/icon_512.png", "textures/icon_256.png", "textures/icon_128.png", "textures/icon_64.png",
 	                                "textures/icon_32.png", "textures/icon_16.png", "textures/icon_8.png", "textures/icon_4.png",
 	                                "textures/icon_2.png", "textures/icon_1.png" };
-	texture = createMipmappedTextureFromAssets(pPaths);
+	texture = createMipmappedTextureFromAssets(pPaths, true);
 
 	// Create a pipeline cache (although we'll only create one pipeline).
 	VkPipelineCacheCreateInfo pipelineCacheInfo = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
