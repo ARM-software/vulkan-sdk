@@ -1,6 +1,6 @@
 # Mali Vulkan SDK for Android
 
-![Mali Vulkan SDK banner](http://malideveloper.arm.com/wp-content/uploads/2016/03/vulkanSDKbanner.png)
+![Mali Vulkan SDK banner](https://cloud.githubusercontent.com/assets/26139625/24910397/8c28b25e-1ebf-11e7-820a-4fa295655d0a.png)
 
 ## Introduction
 
