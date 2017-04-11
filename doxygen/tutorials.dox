@@ -45,4 +45,7 @@ folder of the SDK.
  -# \subpage ASTC
 
     \copybrief ASTC
+ -# \subpage mipmapping
+
+    \copybrief mipmapping
 */

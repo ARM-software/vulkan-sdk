@@ -1,0 +1,632 @@
+/**
+\page mipmapping Mipmapping in Vulkan
+
+\brief Introduces how to use mipmaps and how to generate them from a source image.
+
+\image html mipmapping_manually_generated.gif "Using mipmaps in Vulkan: the quad on the right shows the mip level used for each highlighted quad on the left"
+
+\note The source for this sample can be found in samples/mipmapping in the SDK.
+
+\section mipmappingIntroduction Introduction
+
+This sample builds on the \ref rotatingTexture sample. We will implement mipmapping, both by loading manually scaled images and by generating mipmaps from a single image.
+We will also implement everything needed to draw multiple quads and to cycle between them.
+
+\section mipmappingCreatingMipmappedTexture Creating a mipmapped texture
+
+Let us start with the simplest case, in which we want to create a mipmapped texture by importing already scaled images.
+For that purpose, we will modify the createTextureFromAsset function into createMipmappedTextureFromAssets, which accepts a vector of paths instead of a single one.
+
+It is convenient to store the data for each mip level that we will load in a struct, MipLevel:
+
+\code
+struct MipLevel
+{
+	// The raw, uncompressed data for the image.
+	vector<uint8_t> buffer;
+
+	// The buffer to be copied into a level of the texture.
+	Buffer stagingBuffer;
+
+	unsigned width, height;
+};
+\endcode
+
+The first part of the function is then a straightforward modification from the original one, just by iterating through the images we want to load:
+
+\code
+vector<MipLevel> mipLevels;
+unsigned mipLevelCount;
+
+for (auto &pPath : pPaths)
+{
+	MipLevel mipLevel;
+
+	if (FAILED(loadRgba8888TextureFromAsset(pPath, &mipLevel.buffer, &mipLevel.width, &mipLevel.height)))
+	{
+		LOGE("Failed to load texture from asset.\n");
+		abort();
+	}
+
+	// Copy commands such as vkCmdCopyBufferToImage will need TRANSFER_SRC_BIT.
+	mipLevel.stagingBuffer = createBuffer(mipLevel.buffer.data(), mipLevel.width * mipLevel.height * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+
+	mipLevels.push_back(mipLevel);
+}
+
+// Get the number of mip levels based on the number of loaded sources.
+mipLevelCount = mipLevels.size();
+\endcode
+
+Similar changes are necessary to the structures for creating the VkImage and the VkImageView, which need to be aware of the number of mip levels:
+
+\code
+info.extent.width = mipLevels[0].width;
+info.extent.height = mipLevels[0].height;
+info.mipLevels = mipLevelCount;
+\endcode
+
+\code
+viewInfo.subresourceRange.levelCount = mipLevelCount;
+\endcode
+
+And finally we need to add an extra parameter to the imageMemoryBarrier function, in order to allow for a mipLevelCount greater than one.
+Only one line needs to be changed in the body of the function:
+
+\code
+barrier.subresourceRange.levelCount = mipLevelCount;
+\endcode
+
+We can now move to actually loading data from the staging buffers to the mip levels of the texture.
+Please note that in the final version the first mip level (i.e. the iteration with i = 0) is isolated;
+this will be useful when generating mipmaps, but for the time being we can simplify the code.
+
+\code
+for (unsigned i = 0; i < mipLevelCount; i++)
+{
+	VkBufferImageCopy region;
+	memset(&region, 0, sizeof(region));
+	region.bufferOffset = 0;
+	region.bufferRowLength = mipLevels[i].width;
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = i;
+	region.imageSubresource.layerCount = 1;
+	region.imageExtent.width = mipLevels[i].width;
+	region.imageExtent.height = mipLevels[i].height;
+	region.imageExtent.depth = 1;
+
+	// Copy each staging buffer to the appropriate mip level of our optimally tiled image.
+	vkCmdCopyBufferToImage(cmd, mipLevels[i].stagingBuffer.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+}
+\endcode
+
+The function vkCmdCopyBufferToImage (already used in \ref rotatingTexture) is able to copy data to specific mip level of the destination image,
+just by specifying it in the region structure.
+No memory barrier is needed between such copies, but we must keep the barrier at the end to ensure that no fragment shading is done while we are loading the texture.
+
+The rest of the function requires few other minor modifications, such as freeing all the temporary resources and passing the maximum LOD to the sampler:
+
+\code
+for (auto &mipLevel : mipLevels)
+{
+	// Now it's safe to free the temporary resources.
+	vkFreeMemory(device, mipLevel.stagingBuffer.memory, nullptr);
+	vkDestroyBuffer(device, mipLevel.stagingBuffer.buffer, nullptr);
+}
+\endcode
+
+\code
+samplerInfo.magFilter = VK_FILTER_NEAREST;
+samplerInfo.minFilter = VK_FILTER_NEAREST;
+samplerInfo.maxLod = float(mipLevelCount);
+\endcode
+
+\code
+Texture ret = {
+	image, view, memory, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler, mipLevels[0].width, mipLevels[0].height,
+};
+\endcode
+
+We changed the sampler filters from VK_FILTER_LINEAR to VK_FILTER_NEAREST in order to get a clearer view of what the mip level looks like.
+Keeping the filters to VK_FILTER_LINEAR results in a blurry effect, rather than blocky.
+
+Everything is ready, we can now call our new function to generate a mipmapped texture:
+
+\code
+// Load texture with pre-generated mipmaps.
+vector<char const *> pPaths = { "textures/T_Speaker_512.png", "textures/T_Speaker_256.png", "textures/T_Speaker_128.png",
+                                "textures/T_Speaker_64.png",  "textures/T_Speaker_32.png",  "textures/T_Speaker_16.png",
+                                "textures/T_Speaker_8.png",   "textures/T_Speaker_4.png",   "textures/T_Speaker_2.png",
+                                "textures/T_Speaker_1.png" };
+textures[0] = createMipmappedTextureFromAssets(pPaths);
+\endcode
+
+\section mipmappingGeneratingMipmaps Generating mipmaps in Vulkan
+
+We have seen the case in which we had already generated our mipmaps, but what if we only have a single image?
+
+Generating mipmaps is perfectly doable in Vulkan. Here is an example, similar to the previous one, of mipmaps generated on a Mali GPU:
+
+\image html mipmapping_auto_generated.gif "Automatically generated mipmaps"
+
+Given the code we have already written, we can implement mipmap generation just by changing a few things.
+Our function, createMipmappedTextureFromAssets, will now accept an optional parameter generateMipLevels:
+if true, mip levels will be generated from the first item in pPaths.
+
+The first change is related to mipLevelCount, which must now be computed rather than obtained from the size of the input vector:
+
+\code
+if (generateMipLevels)
+{
+	// Get the number of mip levels to be generated, based on the size of the source.
+	mipLevelCount = floor(std::log2(std::min(mipLevels[0].width, mipLevels[0].height))) + 1;
+}
+\endcode
+
+The size of each mip level is obtained by cutting in half each dimension of the previous level, until one of the dimensions hits 1;
+thus the number of mip levels is the base 2 logarithm of the smaller dimension of the input image.
+
+We will then need to add VK_IMAGE_USAGE_TRANSFER_SRC_BIT to the usage flags for the image, as generating mipmaps can be seen as
+transfers from the image to the image itself.
+
+\code
+info.usage = (generateMipLevels ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0) | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+\endcode
+
+There are two possible approaches to mipmap generation: one is to generate each level from the previous one, the other is to generate all levels from the first one.
+In this tutorial we will follow the second one.
+
+Before we can start generating mipmaps, though, we need to load the first mip level in the image in the usual way:
+
+\code
+VkBufferImageCopy region;
+memset(&region, 0, sizeof(region));
+region.bufferOffset = 0;
+region.bufferRowLength = mipLevels[0].width;
+region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+region.imageSubresource.mipLevel = 0;
+region.imageSubresource.layerCount = 1;
+region.imageExtent.width = mipLevels[0].width;
+region.imageExtent.height = mipLevels[0].height;
+region.imageExtent.depth = 1;
+
+// Copy the buffer for the first mip level to our optimally tiled image.
+vkCmdCopyBufferToImage(cmd, mipLevels[0].stagingBuffer.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+// Transition first mip level into a TRANSFER_SRC_OPTIMAL layout.
+imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1);
+\endcode
+
+Everything looks the same as before, apart from the last part: this is a critical step, as we won't be able to execute transfer commands unless
+the texture is in the appropriate layout.
+Specifically, we need to transition the first mip level from VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+this way we will be able to use it as a source to generate the other levels.
+
+\code
+if (generateMipLevels)
+{
+	for (unsigned i = 1; i < mipLevelCount; i++)
+	{
+		VkImageBlit region;
+		memset(&region, 0, sizeof(region));
+		region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.srcSubresource.mipLevel = 0;
+		region.srcSubresource.layerCount = 1;
+		region.srcOffsets[1].x = mipLevels[0].width;
+		region.srcOffsets[1].y = mipLevels[0].height;
+		region.srcOffsets[1].z = 1;
+		region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.dstSubresource.mipLevel = i;
+		region.dstSubresource.layerCount = 1;
+		region.dstOffsets[1].x = (mipLevels[0].width >> i);
+		region.dstOffsets[1].y = (mipLevels[0].height >> i);
+		region.dstOffsets[1].z = 1;
+
+		// Generate a mip level by copying and scaling the first one.
+		vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+	}
+
+	// Transition back the first mip level into a TRANSFER_DST_OPTIMAL layout.
+	// We do not need to wait for anything to make the transition, so use TOP_OF_PIPE_BIT as the srcStageMask.
+	imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+	                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
+}
+\endcode
+
+The generation of the following levels is done through the vkCmdBlitImage function, which copies regions between two images (or within the same
+image, as in this case).
+The source level is always the first one, while the destination changes at each iteration of the loop.
+The x and y components of dstOffsets[1] correspond to the width and height of each mip level, which we can get by shifting the width and height
+of the base image.
+
+Once we have generated all the mip levels, we need to transition back the first one to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, so that we will
+have the whole image with the same layout and we will be able to transition it to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL with the code that
+is already in place.
+
+Nothing else is required, so we can now load a texture and generate mipmaps for it:
+
+\code
+textures[1] = createMipmappedTextureFromAssets({ "textures/T_Pedestal_512.png" }, true);
+\endcode
+
+\section mipmappingIndexBuffer Creating an index buffer
+
+The \ref rotatingTexture sample uses a triangle strip topology for its vertex buffer, but we will need to move to a triangle list
+since we are drawing separate quads.
+We can achieve this by changing this line in initPipeline:
+
+\code
+inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+\endcode
+
+A quad is now sent to the vertex buffer as two triangles, so we need 6 vertices instead of 4, with two of them being replicated.
+We can avoid this unnecessary replication by using an index buffer: we will specify the 4 vertices once and draw them based on their indices.
+
+\code
+void Mipmapping::createQuad(vector<Vertex> &vertexData, vector<uint16_t> &indexData, unsigned &baseIndex, vec2 topLeft, vec2 bottomRight)
+{
+	vec2 bottomLeft = vec2(topLeft.x, bottomRight.y);
+	vec2 topRight = vec2(bottomRight.x, topLeft.y);
+
+	// Add the vertices to vertexData.
+	vertexData.push_back( { topLeft,     vec2(0.0f, 0.0f) } );
+	vertexData.push_back( { bottomLeft,  vec2(0.0f, 1.0f) } );
+	vertexData.push_back( { topRight,    vec2(1.0f, 0.0f) } );
+	vertexData.push_back( { bottomRight, vec2(1.0f, 1.0f) } );
+
+	// Add the indexes to indexData.
+	indexData.push_back(baseIndex);
+	indexData.push_back(baseIndex + 1);
+	indexData.push_back(baseIndex + 2);
+	indexData.push_back(baseIndex + 3);
+	indexData.push_back(baseIndex + 2);
+	indexData.push_back(baseIndex + 1);
+
+	baseIndex += 4;
+}
+\endcode
+
+The createQuad function adds the four vertices of the quad to vertexData and the six necessary indexes to indexData.
+
+The whole initVertexBuffer function now looks like this:
+
+\code
+void Mipmapping::initVertexBuffer()
+{
+	static vector<Vertex> vertexData;
+	static vector<uint16_t> indexData;
+	unsigned baseIndex = 0;
+
+	// Create a set of quads of decreasing size.
+	createQuad(vertexData, indexData, baseIndex, vec2(-1.35f, +0.8f), vec2(-0.35f, -0.2f));
+
+	for (unsigned i = 1; i < 10; i++)
+	{
+		float quadSize = 1.0f / (1 << i); // 2 ^ (-i)
+		createQuad(vertexData, indexData, baseIndex, vec2(-0.35f - 2*quadSize, -0.2f), vec2(-0.35f - quadSize, -0.2f - quadSize));
+	}
+
+	// Create a single large quad to show mip level stretching.
+	createQuad(vertexData, indexData, baseIndex, vec2(+0.0f, +0.8f), vec2(+1.5f, -0.7f));
+
+	// Create a quad for a label showing the size of the current mip level.
+	createQuad(vertexData, indexData, baseIndex, vec2(+0.0f, -0.75f), vec2(+1.5f, -0.9f));
+
+	// Create a quad for a label showing the current type of mipmaps.
+	createQuad(vertexData, indexData, baseIndex, vec2(-1.6f, -0.75f), vec2(-0.1f, -0.9f));
+
+	vertexBuffer = createBuffer(vertexData.data(), sizeof(vertexData[0]) * vertexData.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+	indexBuffer = createBuffer(indexData.data(), sizeof(indexData[0]) * indexData.size(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+}
+\endcode
+
+In order to actually use the new index buffer, we need to bind it along with the vertex buffer, in the render function.
+We also need to change vkCmdDraw to vkCmdDrawIndexed.
+
+\code
+// Bind index buffer.
+vkCmdBindIndexBuffer(cmd, indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+\endcode
+
+\code
+// Draw the quads.
+vkCmdDrawIndexed(cmd, 6*13, 1, 0, 0, 0);
+\endcode
+
+\section mipmappingExtendingUniformBuffer Extending the uniform buffer
+
+The \ref rotatingTexture sample only sends the MVP matrix to the vertex shader, while in this case the shaders need to know which quad is highlighted
+and which kind of mipmaps (auto/manual) we are displaying.
+To achieve that, we will extend the uniform buffer to a whole structure, UniformBufferData:
+
+\code
+struct UniformBufferData
+{
+	// The MVP matrix.
+	mat4 mvp;
+
+	// The index of the quad to be highlighted.
+	int32_t highlightedQuad;
+
+	// The current type of mipmaps.
+	int32_t mipmapType;
+};
+\endcode
+
+\code
+frame.uniformBuffer = createBuffer(nullptr, sizeof(UniformBufferData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+\endcode
+
+Updating the uniform buffer memory now looks like this:
+
+\code
+// Update the uniform buffers memory.
+UniformBufferData *bufData = nullptr;
+VK_CHECK(vkMapMemory(pContext->getDevice(), frame.uniformBuffer.memory, 0, sizeof(UniformBufferData), 0,
+         reinterpret_cast<void **>(&bufData)));
+
+// Simple orthographic projection.
+float aspect = float(width) / height;
+mat4 proj = ortho(aspect * -1.0f, aspect * 1.0f, -1.0f, 1.0f, 0.0f, 1.0f);
+
+// Fix up the projection matrix so it matches what Vulkan expects.
+bufData->mvp = vulkanStyleProjection(proj);
+
+// Select a quad based on the elapsed time.
+bufData->highlightedQuad = static_cast<int32_t>(accumulatedTime) % 10;
+
+// Write the type of mipmaps associated to the texture we are showing.
+bufData->mipmapType = textureIndex;
+
+vkUnmapMemory(pContext->getDevice(), frame.uniformBuffer.memory);
+\endcode
+
+We are now providing the shaders with all the necessary data to cycle through the quads and display the current texture type.
+In the next sections we will see how to actually change the displayed texture and implement the highlighting in the shaders.
+
+\section mipmappingChangingTexture Changing the displayed texture
+
+Back in the first sections we created two textures, one with manually created mipmaps and the other with generated ones.
+We want to alternate between those textures, so we don't really need to pass both of them to the fragment shader.
+Instead, we will change the texture attachment by updating the descriptor at render time:
+
+\code
+// Select one of the two textures based on the elapsed time.
+accumulatedTime += deltaTime;
+int textureIndex = static_cast<int>(accumulatedTime) / 10 % 2;
+
+// Update the texture descriptor.
+VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+VkDescriptorImageInfo imageInfo = { textures[textureIndex].sampler, textures[textureIndex].view, textures[textureIndex].layout };
+
+write.dstSet = frame.descriptorSet;
+write.dstBinding = 0;
+write.descriptorCount = 1;
+write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+write.pImageInfo = &imageInfo;
+
+vkUpdateDescriptorSets(pContext->getDevice(), 1, &write, 0, nullptr);
+\endcode
+
+\section mipmappingAuxiliaryTexture Adding an auxiliary texture
+
+Before moving on to the shaders, we want to add an auxiliary texture for labeling purposes.
+This texture will be used to show the currently displayed mipmap type and mip level size.
+
+Creating the texture is straightforward:
+
+\code
+// Load the texture for the labels.
+labelTexture = createMipmappedTextureFromAssets({ "textures/labels.png" }, false);
+\endcode
+
+We will also need to add it to our descriptor set. First we will increase the pool size for the image samplers:
+
+\code
+// Allocate descriptor set from a pool.
+static const VkDescriptorPoolSize poolSizes[2] = {
+	{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 }, { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 },
+};
+\endcode
+
+Then we will modify the VkWriteDescriptorSet array accordingly, in the initPerFrame function:
+
+\code
+// Write our uniform and texture descriptors into the descriptor set.
+VkWriteDescriptorSet writes[3] = {
+	{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
+	{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
+};
+
+VkDescriptorBufferInfo bufferInfo = { frame.uniformBuffer.buffer, 0, sizeof(UniformBufferData) };
+VkDescriptorImageInfo imageInfo = { textures[0].sampler, textures[0].view, textures[0].layout };
+VkDescriptorImageInfo labelImageInfo = { labelTexture.sampler, labelTexture.view, labelTexture.layout };
+
+writes[0].dstSet = frame.descriptorSet;
+writes[0].dstBinding = 0;
+writes[0].descriptorCount = 1;
+writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+writes[0].pImageInfo = &imageInfo;
+
+writes[1].dstSet = frame.descriptorSet;
+writes[1].dstBinding = 1;
+writes[1].descriptorCount = 1;
+writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+writes[1].pImageInfo = &labelImageInfo;
+
+writes[2].dstSet = frame.descriptorSet;
+writes[2].dstBinding = 2;
+writes[2].descriptorCount = 1;
+writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+writes[2].pBufferInfo = &bufferInfo;
+
+vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+\endcode
+
+And finally we will update the bindings in initPipelineLayout:
+
+\code
+// In our fragment shader, we have two textures with layout(set = 0, binding = {0, 1}).
+VkDescriptorSetLayoutBinding bindings[3] = { { 0 } };
+bindings[0].binding = 0;
+bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+bindings[0].descriptorCount = 1;
+bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+bindings[1].binding = 1;
+bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+bindings[1].descriptorCount = 1;
+bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+// In our vertex shader, we have one uniform buffer with layout(set = 0, binding = 2).
+bindings[2].binding = 2;
+bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+bindings[2].descriptorCount = 1;
+bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+// Create the descriptor set layout.
+VkDescriptorSetLayoutCreateInfo info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+info.bindingCount = 3;
+info.pBindings = bindings;
+VK_CHECK(vkCreateDescriptorSetLayout(device, &info, nullptr, &setLayout));
+\endcode
+
+As our auxiliary texture is meant to be used as an overlay, we will enable alpha blending when specifying the blend attachment state in initPipeline:
+
+\code
+// Our attachment will write to all color channels, with blending based on the alpha channel.
+VkPipelineColorBlendAttachmentState blendAttachment = { 0 };
+blendAttachment.blendEnable = true;
+blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+blendAttachment.blendEnable = true;
+blendAttachment.colorWriteMask = 0xf;
+\endcode
+
+Now that all the pieces are in place, we can move on to writing the shaders.
+As a general note, always make sure to always destroy all the resources you create, in the terminate function:
+
+\code
+// Index buffer
+vkDestroyBuffer(device, indexBuffer.buffer, nullptr);
+vkFreeMemory(device, indexBuffer.memory, nullptr);
+
+// Textures
+for (auto &texture : textures)
+{
+	vkDestroyImageView(device, texture.view, nullptr);
+	vkDestroyImage(device, texture.image, nullptr);
+	vkDestroySampler(device, texture.sampler, nullptr);
+	vkFreeMemory(device, texture.memory, nullptr);
+}
+
+vkDestroyImageView(device, labelTexture.view, nullptr);
+vkDestroyImage(device, labelTexture.image, nullptr);
+vkDestroySampler(device, labelTexture.sampler, nullptr);
+vkFreeMemory(device, labelTexture.memory, nullptr);
+\endcode
+
+\section mipmappingVertexShader Creating the vertex shader
+
+The vertex buffer's main job here is to pass data to the fragment buffer related to the specific quad that we are drawing.
+
+First we check the vertex index to see if it is part of the currently highlighted quad.
+Also, knowing that quads get progressively smaller, the proportional size of the highlight must grow larger in order for it to be visible.
+We will use the highlightSize output to pass this information to the fragment shader:
+
+\code
+// Set the highlighted status.
+if (gl_VertexIndex / 4 == highlightedQuad)
+{
+	highlightSize = highlightedQuad + 1;
+}
+else
+{
+	highlightSize = 0;
+}
+\endcode
+
+We then need to tell the fragment shader if the current quad requires a fixed mip level.
+This is used in the large quad (on the right in the pictures), which we force to use the same mip level as the currently highlighted quad.
+The indexes for this quad range from 40 to 43, and we don't care about larger indexes because we will not check fixedMipLevel in that case.
+
+\code
+// Set the mip level.
+if (gl_VertexIndex >= 40)
+{
+	fixedMipLevel = highlightedQuad;
+}
+else
+{
+	fixedMipLevel = -1;
+}
+\endcode
+
+Finally we will set the texture index and coordinates.
+The index is straightforward, as 0 is our main texture and 1 is our auxiliary one.
+
+As the auxiliary texture is composed of several horizontal layers, we will need to rescale the y coordinate to select the appropriate layer.
+There are 12 layers in total, the first 10 corresponding to each mip level and the last 2 corresponding to the mipmapping types.
+
+\code
+// Set the texture index and coordinates.
+if (gl_VertexIndex >= 48)
+{
+	textureIndex = 1;
+	vTexCoord.y = (10.0 + vTexCoord.y + float(mipmapType)) / 12.0;
+}
+else if (gl_VertexIndex >= 44)
+{
+	textureIndex = 1;
+	vTexCoord.y = (vTexCoord.y + float(highlightedQuad)) / 12.0;
+}
+else
+{
+	textureIndex = 0;
+}
+\endcode
+
+\section mipmappingFragmentShader Creating the fragment shader
+
+Given the inputs received from the vertex shader, the fragment shader code is pretty simple:
+
+\code
+// Check the texture to be sampled.
+if (textureIndex == 1)
+{
+	// If it's the auxiliary one, just sample it.
+	FragColor = texture(sSizeLabelTexture, vTexCoord);
+}
+else
+{
+	// Get the hightlight size relative to the normalized texture coordinates.
+	float normHighlightSize = 0.02 * float(highlightSize);
+
+	if (vTexCoord.x < normHighlightSize || vTexCoord.x > (1.0 - normHighlightSize) ||
+		vTexCoord.y < normHighlightSize || vTexCoord.y > (1.0 - normHighlightSize))
+	{
+		// Draw the red highlight.
+		FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+	}
+	else if (fixedMipLevel < 0)
+	{
+		// If no fixed mip level is specified, just sample the texture.
+		FragColor = texture(sTexture, vTexCoord);
+	}
+	else
+	{
+		// If a fixed mip level is specified, sample from that mip level.
+		FragColor = textureLod(sTexture, vTexCoord, float(fixedMipLevel));
+	}
+}
+\endcode
+
+The way we are drawing the highlight is to override the texture sampling for locations close to the borders.
+From the vertex shader we receive a larger highlightSize for smaller quads, in order to keep the highlight consistent and visible.
+
+Let us consider what would happen with a flat 2% highlight size: it may be just about right for the largest quad (2% of 512px is about 10px),
+while for smaller quads we quickly get from being barely visible to not being displayed at all, as the 2% of 32px is less than a single pixel.
+
+*/
