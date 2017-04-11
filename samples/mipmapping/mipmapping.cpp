@@ -88,7 +88,10 @@ struct UniformBufferData
 	mat4 mvp;
 
 	// The index of the quad to be highlighted.
-	uint32_t highlightedQuad;
+	int32_t highlightedQuad;
+
+	// The current type of mipmaps.
+	int32_t mipmapType;
 };
 
 // We have one PerFrame struct for every swapchain image.
@@ -140,11 +143,13 @@ private:
 	Buffer vertexBuffer;
 	Buffer indexBuffer;
 	Texture textures[2];
+	Texture labelTexture;
 
 	Buffer createBuffer(const void *pInitial, size_t size, VkFlags usage);
 	Texture createMipmappedTextureFromAssets(vector<char const *> pPaths, bool generateMipLevels = false);
+	void createQuad(vector<Vertex> &vertexData, vector<uint16_t> &indexData, unsigned &baseIndex, vec2 topLeft, vec2 bottomRight);
 
-	uint32_t findMemoryTypeFromRequirements(uint32_t deviceRequirements, uint32_t     rements);
+	uint32_t findMemoryTypeFromRequirements(uint32_t deviceRequirements, uint32_t hostRequirements);
 	uint32_t findMemoryTypeFromRequirementsWithFallback(uint32_t deviceRequirements, uint32_t hostRequirements);
 
 	void initRenderPass(VkFormat format);
@@ -536,6 +541,28 @@ void Mipmapping::initRenderPass(VkFormat format)
 	VK_CHECK(vkCreateRenderPass(pContext->getDevice(), &rpInfo, nullptr, &renderPass));
 }
 
+void Mipmapping::createQuad(vector<Vertex> &vertexData, vector<uint16_t> &indexData, unsigned &baseIndex, vec2 topLeft, vec2 bottomRight)
+{
+	vec2 bottomLeft = vec2(topLeft.x, bottomRight.y);
+	vec2 topRight = vec2(bottomRight.x, topLeft.y);
+
+	// Add the vertices to vertexData.
+	vertexData.push_back( { topLeft,     vec2(0.0f, 0.0f) } );
+	vertexData.push_back( { bottomLeft,  vec2(0.0f, 1.0f) } );
+	vertexData.push_back( { topRight,    vec2(1.0f, 0.0f) } );
+	vertexData.push_back( { bottomRight, vec2(1.0f, 1.0f) } );
+
+	// Add the indexes to indexData.
+	indexData.push_back(baseIndex);
+	indexData.push_back(baseIndex + 1);
+	indexData.push_back(baseIndex + 2);
+	indexData.push_back(baseIndex + 3);
+	indexData.push_back(baseIndex + 2);
+	indexData.push_back(baseIndex + 1);
+
+	baseIndex += 4;
+}
+
 void Mipmapping::initVertexBuffer()
 {
 	static vector<Vertex> vertexData;
@@ -543,49 +570,22 @@ void Mipmapping::initVertexBuffer()
 	unsigned baseIndex = 0;
 
 	// Create a set of quads of decreasing size.
-	vertexData.push_back( { vec2(-1.35f, +0.75f), vec2(0.0f, 0.0f) } );
-	vertexData.push_back( { vec2(-1.35f, -0.25f), vec2(0.0f, 1.0f) } );
-	vertexData.push_back( { vec2(-0.35f, +0.75f), vec2(1.0f, 0.0f) } );
-	vertexData.push_back( { vec2(-0.35f, -0.25f), vec2(1.0f, 1.0f) } );
-
-	indexData.push_back(baseIndex);
-	indexData.push_back(baseIndex + 1);
-	indexData.push_back(baseIndex + 2);
-	indexData.push_back(baseIndex + 3);
-	indexData.push_back(baseIndex + 2);
-	indexData.push_back(baseIndex + 1);
-	baseIndex += 4;
+	createQuad(vertexData, indexData, baseIndex, vec2(-1.35f, +0.8f), vec2(-0.35f, -0.2f));
 
 	for (unsigned i = 1; i < 10; i++)
 	{
-		float quadSize = (float) 1 / (1 << i); // 2 ^ (-i)
-		vertexData.push_back( { vec2(-0.35f - 2*quadSize, -0.25f), vec2(0.0f, 0.0f) } );
-		vertexData.push_back( { vec2(-0.35f - 2*quadSize, -0.25f - quadSize), vec2(0.0f, 1.0f) } );
-		vertexData.push_back( { vec2(-0.35f - quadSize, -0.25f), vec2(1.0f, 0.0f) } );
-		vertexData.push_back( { vec2(-0.35f - quadSize, -0.25f - quadSize), vec2(1.0f, 1.0f) } );
-
-		indexData.push_back(baseIndex);
-		indexData.push_back(baseIndex + 1);
-		indexData.push_back(baseIndex + 2);
-		indexData.push_back(baseIndex + 3);
-		indexData.push_back(baseIndex + 2);
-		indexData.push_back(baseIndex + 1);
-		baseIndex += 4;
+		float quadSize = 1.0f / (1 << i); // 2 ^ (-i)
+		createQuad(vertexData, indexData, baseIndex, vec2(-0.35f - 2*quadSize, -0.2f), vec2(-0.35f - quadSize, -0.2f - quadSize));
 	}
 
 	// Create a single large quad to show mip level stretching.
-	vertexData.push_back( { vec2(+0.0f, +0.75f), vec2(0.0f, 0.0f) } );
-	vertexData.push_back( { vec2(+0.0f, -0.75f), vec2(0.0f, 1.0f) } );
-	vertexData.push_back( { vec2(+1.5f, +0.75f), vec2(1.0f, 0.0f) } );
-	vertexData.push_back( { vec2(+1.5f, -0.75f), vec2(1.0f, 1.0f) } );
+	createQuad(vertexData, indexData, baseIndex, vec2(+0.0f, +0.8f), vec2(+1.5f, -0.7f));
 
-	indexData.push_back(baseIndex);
-	indexData.push_back(baseIndex + 1);
-	indexData.push_back(baseIndex + 2);
-	indexData.push_back(baseIndex + 3);
-	indexData.push_back(baseIndex + 2);
-	indexData.push_back(baseIndex + 1);
-	baseIndex += 4;
+	// Create a quad for a label showing the size of the current mip level.
+	createQuad(vertexData, indexData, baseIndex, vec2(+0.0f, -0.75f), vec2(+1.5f, -0.9f));
+
+	// Create a quad for a label showing the current type of mipmaps.
+	createQuad(vertexData, indexData, baseIndex, vec2(-1.6f, -0.75f), vec2(-0.1f, -0.9f));
 
 	vertexBuffer = createBuffer(vertexData.data(), sizeof(vertexData[0]) * vertexData.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 	indexBuffer = createBuffer(indexData.data(), sizeof(indexData[0]) * indexData.size(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -595,22 +595,27 @@ void Mipmapping::initPipelineLayout()
 {
 	VkDevice device = pContext->getDevice();
 
-	// In our fragment shader, we have one texture with layout(set = 0, binding = 0).
-	VkDescriptorSetLayoutBinding bindings[2] = { { 0 } };
+	// In our fragment shader, we have two textures with layout(set = 0, binding = 0-1).
+	VkDescriptorSetLayoutBinding bindings[3] = { { 0 } };
 	bindings[0].binding = 0;
 	bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	bindings[0].descriptorCount = 1;
 	bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	// In our vertex shader, we have one uniform buffer with layout(set = 0, binding = 1).
 	bindings[1].binding = 1;
-	bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	bindings[1].descriptorCount = 1;
-	bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	// In our vertex shader, we have one uniform buffer with layout(set = 0, binding = 2).
+	bindings[2].binding = 2;
+	bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	bindings[2].descriptorCount = 1;
+	bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
 	// Create the descriptor set layout.
 	VkDescriptorSetLayoutCreateInfo info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-	info.bindingCount = 2;
+	info.bindingCount = 3;
 	info.pBindings = bindings;
 	VK_CHECK(vkCreateDescriptorSetLayout(device, &info, nullptr, &setLayout));
 
@@ -664,9 +669,13 @@ void Mipmapping::initPipeline()
 	raster.depthBiasEnable = false;
 	raster.lineWidth = 1.0f;
 
-	// Our attachment will write to all color channels, but no blending is enabled.
+	// Our attachment will write to all color channels, with blending based on the alpha channel.
 	VkPipelineColorBlendAttachmentState blendAttachment = { 0 };
-	blendAttachment.blendEnable = false;
+	blendAttachment.blendEnable = true;
+	blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+	blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	blendAttachment.blendEnable = true;
 	blendAttachment.colorWriteMask = 0xf;
 
 	VkPipelineColorBlendStateCreateInfo blend = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
@@ -751,6 +760,9 @@ bool Mipmapping::initialize(Context *pContext)
 	// Load texture and generate mipmaps.
 	textures[1] = createMipmappedTextureFromAssets({ "textures/T_Pedestal_512.png" }, true);
 
+	// Load the texture for the labels.
+	labelTexture = createMipmappedTextureFromAssets({ "textures/labels.png" }, false);
+
 	// Create a pipeline cache (although we'll only create one pipeline).
 	VkPipelineCacheCreateInfo pipelineCacheInfo = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
 	VK_CHECK(vkCreatePipelineCache(pContext->getDevice(), &pipelineCacheInfo, nullptr, &pipelineCache));
@@ -819,11 +831,11 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 
 	// Select one of the two textures based on the elapsed time.
 	accumulatedTime += deltaTime;
-	unsigned texture_id = (unsigned) floor(accumulatedTime) / 10 % 2;
+	int textureIndex = static_cast<int>(accumulatedTime) / 10 % 2;
 
 	// Update the texture descriptor.
 	VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-	VkDescriptorImageInfo imageInfo = { textures[texture_id].sampler, textures[texture_id].view, textures[texture_id].layout };
+	VkDescriptorImageInfo imageInfo = { textures[textureIndex].sampler, textures[textureIndex].view, textures[textureIndex].layout };
 
 	write.dstSet = frame.descriptorSet;
 	write.dstBinding = 0;
@@ -850,12 +862,15 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	bufData->mvp = vulkanStyleProjection(proj);
 
 	// Select a quad based on the elapsed time.
-	bufData->highlightedQuad = (uint32_t) floor(accumulatedTime) % 10;
+	bufData->highlightedQuad = static_cast<int32_t>(accumulatedTime) % 10;
+
+	// Write the current type of mipmaps, corresponding to the texture we are showing.
+	bufData->mipmapType = textureIndex;
 
 	vkUnmapMemory(pContext->getDevice(), frame.uniformBuffer.memory);
 
 	// Draw the quads.
-	vkCmdDrawIndexed(cmd, 6*11, 1, 0, 0, 0);
+	vkCmdDrawIndexed(cmd, 6*13, 1, 0, 0, 0);
 
 	// Complete render pass.
 	vkCmdEndRenderPass(cmd);
@@ -925,6 +940,11 @@ void Mipmapping::terminate()
 		vkFreeMemory(device, texture.memory, nullptr);
 	}
 
+	vkDestroyImageView(device, labelTexture.view, nullptr);
+	vkDestroyImage(device, labelTexture.image, nullptr);
+	vkDestroySampler(device, labelTexture.sampler, nullptr);
+	vkFreeMemory(device, labelTexture.memory, nullptr);
+
 	// Per-frame resources
 	termPerFrame();
 	termBackbuffers();
@@ -947,7 +967,7 @@ void Mipmapping::initPerFrame(unsigned numBackbuffers)
 
 		// Allocate descriptor set from a pool.
 		static const VkDescriptorPoolSize poolSizes[2] = {
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 }, { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 }, { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 },
 		};
 
 		VkDescriptorPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
@@ -963,12 +983,13 @@ void Mipmapping::initPerFrame(unsigned numBackbuffers)
 		VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &frame.descriptorSet));
 
 		// Write our uniform and texture descriptors into the descriptor set.
-		VkWriteDescriptorSet writes[2] = {
-			{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
+		VkWriteDescriptorSet writes[3] = {
+			{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
 		};
 
 		VkDescriptorBufferInfo bufferInfo = { frame.uniformBuffer.buffer, 0, sizeof(UniformBufferData) };
 		VkDescriptorImageInfo imageInfo = { textures[0].sampler, textures[0].view, textures[0].layout };
+		VkDescriptorImageInfo labelImageInfo = { labelTexture.sampler, labelTexture.view, labelTexture.layout };
 
 		writes[0].dstSet = frame.descriptorSet;
 		writes[0].dstBinding = 0;
@@ -979,10 +1000,16 @@ void Mipmapping::initPerFrame(unsigned numBackbuffers)
 		writes[1].dstSet = frame.descriptorSet;
 		writes[1].dstBinding = 1;
 		writes[1].descriptorCount = 1;
-		writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		writes[1].pBufferInfo = &bufferInfo;
+		writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		writes[1].pImageInfo = &labelImageInfo;
 
-		vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+		writes[2].dstSet = frame.descriptorSet;
+		writes[2].dstBinding = 2;
+		writes[2].descriptorCount = 1;
+		writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		writes[2].pBufferInfo = &bufferInfo;
+
+		vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
 
 		perFrame.push_back(frame);
 	}

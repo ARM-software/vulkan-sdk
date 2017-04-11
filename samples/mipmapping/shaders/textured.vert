@@ -23,13 +23,15 @@ layout(location = 0) in vec2 Position;
 layout(location = 1) in vec2 TexCoord;
 
 layout(location = 0) out highp vec2 vTexCoord;
-layout(location = 1) out float highlight;
-layout(location = 2) out float fixedMipLevel;
+layout(location = 1) flat out int textureIndex;
+layout(location = 2) flat out int highlightSize;
+layout(location = 3) flat out int fixedMipLevel;
 
-layout(set = 0, binding = 1, std140) uniform UBO
+layout(set = 0, binding = 2, std140) uniform UBO
 {
 	mat4 MVP;
-	uint highlightedQuad;
+	int highlightedQuad;
+	int mipmapType;
 };
 
 void main()
@@ -37,21 +39,36 @@ void main()
     gl_Position = MVP * vec4(Position, 0.0, 1.0);
     vTexCoord = TexCoord;
 
-	if (uint(gl_VertexIndex / 4) == highlightedQuad)
+	if (gl_VertexIndex / 4 == highlightedQuad)
 	{
-		highlight = float(highlightedQuad) + 1.0;
+		highlightSize = highlightedQuad + 1;
 	}
 	else
 	{
-		highlight = 0.0;
+		highlightSize = 0;
 	}
 
 	if (gl_VertexIndex >= 40)
 	{
-		fixedMipLevel = float(highlightedQuad);
+		fixedMipLevel = highlightedQuad;
 	}
 	else
 	{
-		fixedMipLevel = -1.0;
+		fixedMipLevel = -1;
+	}
+
+	if (gl_VertexIndex >= 48)
+	{
+		textureIndex = 1;
+		vTexCoord.y = (10.0 + vTexCoord.y + float(mipmapType)) / 12.0;
+	}
+	else if (gl_VertexIndex >= 44)
+	{
+		textureIndex = 1;
+		vTexCoord.y = (vTexCoord.y + float(highlightedQuad)) / 12.0;
+	}
+	else
+	{
+		textureIndex = 0;
 	}
 }
