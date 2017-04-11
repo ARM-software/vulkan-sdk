@@ -1,5 +1,5 @@
 #version 310 es
-/* Copyright (c) 2016-2017, ARM Limited and Contributors
+/* Copyright (c) 2017, ARM Limited and Contributors
  *
  * SPDX-License-Identifier: MIT
  *
@@ -33,28 +33,32 @@ layout(set = 0, binding = 1) uniform sampler2D sSizeLabelTexture;
 
 void main()
 {
+	// Check the texture to be sampled.
 	if (textureIndex == 1)
 	{
+		// If it's the auxiliary one, just sample it.
 		FragColor = texture(sSizeLabelTexture, vTexCoord);
 	}
 	else
 	{
-		if (fixedMipLevel > 0)
+		// Get the hightlight size relative to the normalized texture coordinates.
+		float normHighlightSize = 0.02 * float(highlightSize);
+
+		if (vTexCoord.x < normHighlightSize || vTexCoord.x > (1.0 - normHighlightSize) ||
+		    vTexCoord.y < normHighlightSize || vTexCoord.y > (1.0 - normHighlightSize))
 		{
-			FragColor = textureLod(sTexture, vTexCoord, float(fixedMipLevel));
+			// Draw the red highlight.
+			FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+		}
+		else if (fixedMipLevel < 0)
+		{
+			// If no fixed mip level is specified, just sample the texture.
+			FragColor = texture(sTexture, vTexCoord);
 		}
 		else
 		{
-			if (highlightSize > 6 && (vTexCoord.x < 0.2  || vTexCoord.x > 0.8  || vTexCoord.y < 0.2  || vTexCoord.y > 0.8)  ||
-				highlightSize > 4 && (vTexCoord.x < 0.05 || vTexCoord.x > 0.95 || vTexCoord.y < 0.05 || vTexCoord.y > 0.95) ||
-				highlightSize > 0 && (vTexCoord.x < 0.02 || vTexCoord.x > 0.98 || vTexCoord.y < 0.02 || vTexCoord.y > 0.98))
-			{
-				FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-			}
-			else
-			{
-				FragColor = texture(sTexture, vTexCoord);
-			}
+			// If a fixed mip level is specified, sample from that mip level.
+			FragColor = textureLod(sTexture, vTexCoord, float(fixedMipLevel));
 		}
 	}
 }

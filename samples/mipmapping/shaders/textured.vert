@@ -1,5 +1,5 @@
 #version 310 es
-/* Copyright (c) 2016-2017, ARM Limited and Contributors
+/* Copyright (c) 2017, ARM Limited and Contributors
  *
  * SPDX-License-Identifier: MIT
  *
@@ -36,39 +36,64 @@ layout(set = 0, binding = 2, std140) uniform UBO
 
 void main()
 {
-    gl_Position = MVP * vec4(Position, 0.0, 1.0);
-    vTexCoord = TexCoord;
+	gl_Position = MVP * vec4(Position, 0.0, 1.0);
+	vTexCoord = TexCoord;
 
+	// Set the highlighted status.
 	if (gl_VertexIndex / 4 == highlightedQuad)
 	{
+		// If the vertex is part of the currently highlighted quad,
+		// set its highlightSize to a non-zero value.
+		// We also exploit the specific value of this parameter to
+		// pass some information about the size of the quad to the
+		// fragment shader: the highlight will need to be larger
+		// for smaller quads, in proportion.
 		highlightSize = highlightedQuad + 1;
 	}
 	else
 	{
+		// No highlight.
 		highlightSize = 0;
 	}
 
+	// Set the mip level.
 	if (gl_VertexIndex >= 40)
 	{
+		// The large, fixed size quad is used to showcase the
+		// stretching of smaller mip layers, so we'll fix its
+		// mip level to the one of the currently highlighted quad.
 		fixedMipLevel = highlightedQuad;
 	}
 	else
 	{
+		// Don't set any mip level.
 		fixedMipLevel = -1;
 	}
 
+	// Set the texture index and coordinates:
+	// - index 0: the main texture;
+	// - index 1: the auxiliary texture for labels.
+	//
+	// The auxiliary texture is split in 12 horizontal sections,
+	// the first 10 corresponding to the quad sizes
+	// and the last 2 corresponding to the mipmap types.
 	if (gl_VertexIndex >= 48)
 	{
+		// Set the auxiliary texture and rescale the y coordinate to
+		// pick the current mipmap type.
 		textureIndex = 1;
 		vTexCoord.y = (10.0 + vTexCoord.y + float(mipmapType)) / 12.0;
 	}
 	else if (gl_VertexIndex >= 44)
 	{
+		// Set the auxiliary texture and rescale the y coordinate to
+		// pick the currently highlighted quad size.
 		textureIndex = 1;
 		vTexCoord.y = (vTexCoord.y + float(highlightedQuad)) / 12.0;
 	}
 	else
 	{
+		// Set the main texture.
 		textureIndex = 0;
 	}
 }

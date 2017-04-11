@@ -142,7 +142,11 @@ private:
 
 	Buffer vertexBuffer;
 	Buffer indexBuffer;
+
+	// The two mipmapped textures to be shown alternately.
 	Texture textures[2];
+
+	// The texture containing the labels for the size and type of mipmaps.
 	Texture labelTexture;
 
 	Buffer createBuffer(const void *pInitial, size_t size, VkFlags usage);
@@ -163,11 +167,11 @@ private:
 	void initPipelineLayout();
 
 	void imageMemoryBarrier(VkCommandBuffer cmd, VkImage image, VkAccessFlags srcAccessMask,
-                            VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageMask,
-                            VkPipelineStageFlags dstStageMask, VkImageLayout oldLayout,
-                            VkImageLayout newLayout, unsigned mipLevelCount);
+	                        VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageMask,
+	                        VkPipelineStageFlags dstStageMask, VkImageLayout oldLayout,
+	                        VkImageLayout newLayout, unsigned mipLevelCount);
 
-    float accumulatedTime = 0.0f;
+	float accumulatedTime = 0.0f;
 };
 
 // To create a buffer, both the device and application have requirements from the buffer object.
@@ -219,12 +223,18 @@ uint32_t Mipmapping::findMemoryTypeFromRequirementsWithFallback(uint32_t deviceR
 
 Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths, bool generateMipLevels)
 {
-	// We first create a vector of staging buffers, containing the images for each mip level.
+	// We first create a vector of staging buffers, containing the images loaded from each path.
 	//
-	// We will then copy these buffers into an optimally tiled texture with vkCmdCopyBufferToImage.
-	// The layout of such a texture is not specified as it is highly GPU-dependent and optimized for
+	// We will then create a mipmapped texture, depending on the value of generateMipLevels:
+	// - if generateMipLevels is true, we will generate mip levels based on the first path specified,
+	//   using vkCmdBlitImage;
+	// - if generateMipLevels is false, we will copy each buffer into a mip level of an optimally tiled
+	//   texture with vkCmdCopyBufferToImage.
+	//
+	// The layout of the texture is not specified as it is highly GPU-dependent and optimized for
 	// utilizing texture caches better.
 	vector<MipLevel> mipLevels;
+	unsigned mipLevelCount;
 
 	for (auto &pPath : pPaths)
 	{
@@ -242,10 +252,15 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 		mipLevels.push_back(mipLevel);
 	}
 
-	unsigned mipLevelCount = mipLevels.size();
 	if (generateMipLevels)
 	{
+		// Get the number of mip levels to be generated, based on the size of the source.
 		mipLevelCount = floor(std::log2(std::min(mipLevels[0].width, mipLevels[0].height))) + 1;
+	}
+	else
+	{
+		// Get the number of mip levels based on the number of loaded sources.
+		mipLevelCount = mipLevels.size();
 	}
 
 	VkDevice device = pContext->getDevice();
@@ -317,8 +332,8 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	// Transition the uninitialized texture into a TRANSFER_DST_OPTIMAL layout.
 	// We do not need to wait for anything to make the transition, so use TOP_OF_PIPE_BIT as the srcStageMask.
 	imageMemoryBarrier(cmd, image, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       mipLevelCount);
+	                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	                   mipLevelCount);
 
 	VkBufferImageCopy region;
 	memset(&region, 0, sizeof(region));
@@ -338,8 +353,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	{
 		// Transition first mip level into a TRANSFER_SRC_OPTIMAL layout.
 		imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-						   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-						   1);
+						   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1);
 
 		for (unsigned i = 1; i < mipLevelCount; i++)
 		{
@@ -365,8 +379,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 		// Transition back the first mip level into a TRANSFER_DST_OPTIMAL layout.
 		// We do not need to wait for anything to make the transition, so use TOP_OF_PIPE_BIT as the srcStageMask.
 		imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-						   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-						   1);
+	                       VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
 	}
 	else
 	{
@@ -383,7 +396,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 			region.imageExtent.height = mipLevels[i].height;
 			region.imageExtent.depth = 1;
 
-			// Copy the buffer for each mip level to our optimally tiled image.
+			// Copy each staging buffer to the appropriate mip level of our optimally tiled image.
 			vkCmdCopyBufferToImage(cmd, mipLevels[i].stagingBuffer.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 		}
 	}
@@ -431,9 +444,9 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 }
 
 void Mipmapping::imageMemoryBarrier(VkCommandBuffer cmd, VkImage image, VkAccessFlags srcAccessMask,
-                                         VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageMask,
-                                         VkPipelineStageFlags dstStageMask, VkImageLayout oldLayout,
-                                         VkImageLayout newLayout, unsigned mipLevelCount)
+                                    VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageMask,
+                                    VkPipelineStageFlags dstStageMask, VkImageLayout oldLayout,
+                                    VkImageLayout newLayout, unsigned mipLevelCount)
 {
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 
@@ -595,7 +608,7 @@ void Mipmapping::initPipelineLayout()
 {
 	VkDevice device = pContext->getDevice();
 
-	// In our fragment shader, we have two textures with layout(set = 0, binding = 0-1).
+	// In our fragment shader, we have two textures with layout(set = 0, binding = {0, 1}).
 	VkDescriptorSetLayoutBinding bindings[3] = { { 0 } };
 	bindings[0].binding = 0;
 	bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -750,11 +763,11 @@ bool Mipmapping::initialize(Context *pContext)
 	// Initialize the pipeline layout.
 	initPipelineLayout();
 
-	// Load pre-mipmapped texture.
+	// Load texture with pre-generated mipmaps.
 	vector<char const *> pPaths = { "textures/T_Speaker_512.png", "textures/T_Speaker_256.png", "textures/T_Speaker_128.png",
 	                                "textures/T_Speaker_64.png",  "textures/T_Speaker_32.png",  "textures/T_Speaker_16.png",
-                                    "textures/T_Speaker_8.png",   "textures/T_Speaker_4.png",   "textures/T_Speaker_2.png",
-                                    "textures/T_Speaker_1.png" };
+	                                "textures/T_Speaker_8.png",   "textures/T_Speaker_4.png",   "textures/T_Speaker_2.png",
+	                                "textures/T_Speaker_1.png" };
 	textures[0] = createMipmappedTextureFromAssets(pPaths, false);
 
 	// Load texture and generate mipmaps.
@@ -847,12 +860,12 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 
 	// Bind the descriptor set.
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &frame.descriptorSet, 0,
-                            nullptr);
+	                        nullptr);
 
 	// Update the uniform buffers memory.
 	UniformBufferData *bufData = nullptr;
 	VK_CHECK(vkMapMemory(pContext->getDevice(), frame.uniformBuffer.memory, 0, sizeof(UniformBufferData), 0,
-                         reinterpret_cast<void **>(&bufData)));
+	         reinterpret_cast<void **>(&bufData)));
 
 	// Simple orthographic projection.
 	float aspect = float(width) / height;
@@ -864,7 +877,7 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	// Select a quad based on the elapsed time.
 	bufData->highlightedQuad = static_cast<int32_t>(accumulatedTime) % 10;
 
-	// Write the current type of mipmaps, corresponding to the texture we are showing.
+	// Write the type of mipmaps associated to the texture we are showing.
 	bufData->mipmapType = textureIndex;
 
 	vkUnmapMemory(pContext->getDevice(), frame.uniformBuffer.memory);
@@ -984,7 +997,8 @@ void Mipmapping::initPerFrame(unsigned numBackbuffers)
 
 		// Write our uniform and texture descriptors into the descriptor set.
 		VkWriteDescriptorSet writes[3] = {
-			{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
+			{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }, { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
+			{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET },
 		};
 
 		VkDescriptorBufferInfo bufferInfo = { frame.uniformBuffer.buffer, 0, sizeof(UniformBufferData) };
