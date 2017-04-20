@@ -44,21 +44,19 @@ void main()
 		// Get the hightlight size relative to the normalized texture coordinates.
 		float normHighlightSize = 0.02 * float(highlightSize);
 
+		// Sample the texture with a fixed mip level.
+		vec4 sampledColor = textureLod(sTexture, vTexCoord, float(fixedMipLevel));
+
 		if (vTexCoord.x < normHighlightSize || vTexCoord.x > (1.0 - normHighlightSize) ||
 		    vTexCoord.y < normHighlightSize || vTexCoord.y > (1.0 - normHighlightSize))
 		{
 			// Draw the red highlight.
 			FragColor = vec4(1.0, 0.0, 0.0, 1.0);
 		}
-		else if (fixedMipLevel < 0)
-		{
-			// If no fixed mip level is specified, just sample the texture.
-			FragColor = texture(sTexture, vTexCoord);
-		}
 		else
 		{
-			// If a fixed mip level is specified, sample from that mip level.
-			FragColor = textureLod(sTexture, vTexCoord, float(fixedMipLevel));
+			// Use the sampled color.
+			FragColor = sampledColor;
 		}
 	}
 }

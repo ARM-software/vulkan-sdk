@@ -40,7 +40,7 @@ void main()
 	vTexCoord = TexCoord;
 
 	// Set the highlighted status.
-	if (gl_VertexIndex / 4 == highlightedQuad)
+	if (gl_VertexIndex >> 2 == highlightedQuad)
 	{
 		// If the vertex is part of the currently highlighted quad,
 		// set its highlightSize to a non-zero value.
@@ -57,17 +57,18 @@ void main()
 	}
 
 	// Set the mip level.
-	if (gl_VertexIndex >= 40)
+	if (gl_VertexIndex < 40)
+	{
+		// For the set of quads of decreasing sizes the mip level
+		// corresponds to the index of the quad.
+		fixedMipLevel = gl_VertexIndex >> 2;
+	}
+	else
 	{
 		// The large, fixed size quad is used to showcase the
 		// stretching of smaller mip layers, so we'll fix its
 		// mip level to the one of the currently highlighted quad.
 		fixedMipLevel = highlightedQuad;
-	}
-	else
-	{
-		// Don't set any mip level.
-		fixedMipLevel = -1;
 	}
 
 	// Set the texture index and coordinates:
