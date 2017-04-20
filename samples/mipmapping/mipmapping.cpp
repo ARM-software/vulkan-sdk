@@ -28,7 +28,9 @@
 
 using namespace MaliSDK;
 using namespace std;
-using namespace glm;
+using glm::vec2;
+using glm::mat4;
+using glm::ortho;
 
 struct Backbuffer
 {
@@ -255,7 +257,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	if (generateMipLevels)
 	{
 		// Get the number of mip levels to be generated, based on the size of the source.
-		mipLevelCount = floor(std::log2(std::min(mipLevels[0].width, mipLevels[0].height))) + 1;
+		mipLevelCount = floor(log2(float(min(mipLevels[0].width, mipLevels[0].height)))) + 1;
 	}
 	else
 	{
