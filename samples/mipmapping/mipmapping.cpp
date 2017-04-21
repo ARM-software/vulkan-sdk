@@ -171,7 +171,7 @@ private:
 	void imageMemoryBarrier(VkCommandBuffer cmd, VkImage image, VkAccessFlags srcAccessMask,
 	                        VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageMask,
 	                        VkPipelineStageFlags dstStageMask, VkImageLayout oldLayout,
-	                        VkImageLayout newLayout, unsigned mipLevelCount);
+	                        VkImageLayout newLayout, unsigned baseMipLevel, unsigned mipLevelCount);
 
 	float accumulatedTime = 0.0f;
 };
@@ -335,7 +335,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 	// We do not need to wait for anything to make the transition, so use TOP_OF_PIPE_BIT as the srcStageMask.
 	imageMemoryBarrier(cmd, image, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 	                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-	                   mipLevelCount);
+	                   0, mipLevelCount);
 
 	VkBufferImageCopy region = {};
 	memset(&region, 0, sizeof(region));
@@ -354,18 +354,21 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 	if (generateMipLevels)
 	{
 		// Transition first mip level into a TRANSFER_SRC_OPTIMAL layout.
-		imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-						   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1);
+		// We need to wait for first CopyBuffer to complete before we can transition away from TRANSFER_DST_OPTIMAL,
+		// so use VK_PIPELINE_STAGE_TRANSFER_BIT as the srcStageMask.
+		imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+		                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		                   0, 1);
 
 		for (unsigned i = 1; i < mipLevelCount; i++)
 		{
 			VkImageBlit region = {};
 			memset(&region, 0, sizeof(region));
 			region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			region.srcSubresource.mipLevel = 0;
+			region.srcSubresource.mipLevel = i - 1;
 			region.srcSubresource.layerCount = 1;
-			region.srcOffsets[1].x = mipLevels[0].width;
-			region.srcOffsets[1].y = mipLevels[0].height;
+			region.srcOffsets[1].x = max(mipLevels[0].width >> (i - 1), 1u);
+			region.srcOffsets[1].y = max(mipLevels[0].height >> (i - 1), 1u);
 			region.srcOffsets[1].z = 1;
 			region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			region.dstSubresource.mipLevel = i;
@@ -374,14 +377,29 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 			region.dstOffsets[1].y = max(mipLevels[0].height >> i, 1u);
 			region.dstOffsets[1].z = 1;
 
-			// Generate a mip level by copying and scaling the first one.
+			// Generate a mip level by copying and scaling the previous one.
 			vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
-		}
 
-		// Transition back the first mip level into a TRANSFER_DST_OPTIMAL layout.
-		// We do not need to wait for anything to make the transition, so use TOP_OF_PIPE_BIT as the srcStageMask.
-		imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-	                       VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
+			// Transition the previous mip level into a SHADER_READ_ONLY_OPTIMAL layout.
+			imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+			                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			                   i - 1, 1);
+
+			if (i < mipLevelCount)
+			{
+				// Transition the current mip level into a TRANSFER_SRC_OPTIMAL layout, to be used as the source for the next one.
+				imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				                   i, 1);
+			}
+			else
+			{
+				// If this is the last iteration of the loop, transition the mip level directly to a SHADER_READ_ONLY_OPTIMAL layout.
+				imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				                   i, 1);
+			}
+		}
 	}
 	else
 	{
@@ -401,13 +419,13 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 			// Copy each staging buffer to the appropriate mip level of our optimally tiled image.
 			vkCmdCopyBufferToImage(cmd, mipLevels[i].stagingBuffer.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 		}
-	}
 
-	// Wait for all transfers to complete before we let any fragment shading begin.
-	imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                       mipLevelCount);
+		// Wait for all transfers to complete before we let any fragment shading begin.
+		imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+		                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		                   0, mipLevelCount);
+	}
 
 	VK_CHECK(vkEndCommandBuffer(cmd));
 	pContext->submit(cmd);
@@ -448,7 +466,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 void Mipmapping::imageMemoryBarrier(VkCommandBuffer cmd, VkImage image, VkAccessFlags srcAccessMask,
                                     VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageMask,
                                     VkPipelineStageFlags dstStageMask, VkImageLayout oldLayout,
-                                    VkImageLayout newLayout, unsigned mipLevelCount)
+                                    VkImageLayout newLayout, unsigned baseMipLevel, unsigned mipLevelCount)
 {
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 
@@ -460,6 +478,7 @@ void Mipmapping::imageMemoryBarrier(VkCommandBuffer cmd, VkImage image, VkAccess
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
 	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = baseMipLevel;
 	barrier.subresourceRange.levelCount = mipLevelCount;
 	barrier.subresourceRange.layerCount = 1;
 
