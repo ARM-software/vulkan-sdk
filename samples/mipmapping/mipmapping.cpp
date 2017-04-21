@@ -152,7 +152,7 @@ private:
 	Texture labelTexture;
 
 	Buffer createBuffer(const void *pInitial, size_t size, VkFlags usage);
-	Texture createMipmappedTextureFromAssets(vector<char const *> pPaths, bool generateMipLevels = false);
+	Texture createMipmappedTextureFromAssets(const vector<const char *> pPaths, bool generateMipLevels = false);
 	void createQuad(vector<Vertex> &vertexData, vector<uint16_t> &indexData, unsigned &baseIndex, vec2 topLeft, vec2 bottomRight);
 
 	uint32_t findMemoryTypeFromRequirements(uint32_t deviceRequirements, uint32_t hostRequirements);
@@ -223,7 +223,7 @@ uint32_t Mipmapping::findMemoryTypeFromRequirementsWithFallback(uint32_t deviceR
 	}
 }
 
-Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths, bool generateMipLevels)
+Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> pPaths, bool generateMipLevels)
 {
 	// We first create a vector of staging buffers, containing the images loaded from each path.
 	//
@@ -316,8 +316,8 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
 	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	viewInfo.subresourceRange.levelCount = mipLevelCount;
-	viewInfo.subresourceRange.layerCount = 1;
+	viewInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+	viewInfo.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
 	VkImageView view;
 	VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &view));
@@ -337,7 +337,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 	                   mipLevelCount);
 
-	VkBufferImageCopy region;
+	VkBufferImageCopy region = {};
 	memset(&region, 0, sizeof(region));
 	region.bufferOffset = 0;
 	region.bufferRowLength = mipLevels[0].width;
@@ -359,7 +359,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 
 		for (unsigned i = 1; i < mipLevelCount; i++)
 		{
-			VkImageBlit region;
+			VkImageBlit region = {};
 			memset(&region, 0, sizeof(region));
 			region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			region.srcSubresource.mipLevel = 0;
@@ -370,8 +370,8 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 			region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			region.dstSubresource.mipLevel = i;
 			region.dstSubresource.layerCount = 1;
-			region.dstOffsets[1].x = (mipLevels[0].width >> i);
-			region.dstOffsets[1].y = (mipLevels[0].height >> i);
+			region.dstOffsets[1].x = max(mipLevels[0].width >> i, 1u);
+			region.dstOffsets[1].y = max(mipLevels[0].height >> i, 1u);
 			region.dstOffsets[1].z = 1;
 
 			// Generate a mip level by copying and scaling the first one.
@@ -387,7 +387,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	{
 		for (unsigned i = 1; i < mipLevelCount; i++)
 		{
-			VkBufferImageCopy region;
+			VkBufferImageCopy region = {};
 			memset(&region, 0, sizeof(region));
 			region.bufferOffset = 0;
 			region.bufferRowLength = mipLevels[i].width;
@@ -434,7 +434,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(vector<char const *> pPaths
 	samplerInfo.maxAnisotropy = 1.0f;
 	samplerInfo.compareEnable = false;
 	samplerInfo.minLod = 0.0f;
-	samplerInfo.maxLod = float(mipLevelCount);
+	samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
 
 	VkSampler sampler;
 	VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &sampler));
@@ -590,7 +590,7 @@ void Mipmapping::initVertexBuffer()
 	for (unsigned i = 1; i < 10; i++)
 	{
 		float quadSize = 1.0f / (1 << i); // 2 ^ (-i)
-		createQuad(vertexData, indexData, baseIndex, vec2(-0.35f - 2*quadSize, -0.2f), vec2(-0.35f - quadSize, -0.2f - quadSize));
+		createQuad(vertexData, indexData, baseIndex, vec2(-0.35f - 2.0f * quadSize, -0.2f), vec2(-0.35f - quadSize, -0.2f - quadSize));
 	}
 
 	// Create a single large quad to show mip level stretching.
@@ -668,14 +668,18 @@ void Mipmapping::initPipeline()
 	binding.stride = sizeof(Vertex);
 	binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-	VkPipelineVertexInputStateCreateInfo vertexInput = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+	VkPipelineVertexInputStateCreateInfo vertexInput = {
+		VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+	};
 	vertexInput.vertexBindingDescriptionCount = 1;
 	vertexInput.pVertexBindingDescriptions = &binding;
 	vertexInput.vertexAttributeDescriptionCount = 2;
 	vertexInput.pVertexAttributeDescriptions = attributes;
 
 	// Specify rasterization state.
-	VkPipelineRasterizationStateCreateInfo raster = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+	VkPipelineRasterizationStateCreateInfo raster = {
+		VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+	};
 	raster.polygonMode = VK_POLYGON_MODE_FILL;
 	raster.cullMode = VK_CULL_MODE_BACK_BIT;
 	raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
@@ -866,7 +870,7 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 
 	// Update the uniform buffers memory.
 	UniformBufferData *bufData = nullptr;
-	VK_CHECK(vkMapMemory(pContext->getDevice(), frame.uniformBuffer.memory, 0, sizeof(UniformBufferData), 0,
+	VK_CHECK(vkMapMemory(pContext->getDevice(), frame.uniformBuffer.memory, 0, VK_WHOLE_SIZE, 0,
 	         reinterpret_cast<void **>(&bufData)));
 
 	// Simple orthographic projection.
@@ -885,7 +889,7 @@ void Mipmapping::render(unsigned swapchainIndex, float deltaTime)
 	vkUnmapMemory(pContext->getDevice(), frame.uniformBuffer.memory);
 
 	// Draw the quads.
-	vkCmdDrawIndexed(cmd, 6*13, 1, 0, 0, 0);
+	vkCmdDrawIndexed(cmd, 6 * 13, 1, 0, 0, 0);
 
 	// Complete render pass.
 	vkCmdEndRenderPass(cmd);
