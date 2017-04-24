@@ -14,7 +14,7 @@ The mip levels for each case are displayed as shown in the image above.
 
 In this tutorial we will go through the steps needed to implement both mipmapping approaches.
 
-\section mipmappingCreatingMipmappedTexture Creating a mipmapped texture from pre-scaled image
+\section mipmappingLoadingMipmappedTexture Loading a mipmapped texture from pre-scaled images
 
 Let us start with the simplest case, in which we want to create a mipmapped texture by importing already scaled images.
 For that purpose, we will modify the createTextureFromAsset function into createMipmappedTextureFromAssets, which accepts a vector of paths instead of a single one.
@@ -57,7 +57,6 @@ this will be useful when generating mipmaps, but for the time being we can simpl
 for (unsigned i = 0; i < mipLevelCount; i++)
 {
 	VkBufferImageCopy region = {};
-	memset(&region, 0, sizeof(region));
 	region.bufferOffset = 0;
 	region.bufferRowLength = mipLevels[i].width;
 	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -79,7 +78,7 @@ copying the texture from the staging buffers.
 
 The rest of the function requires few other minor modifications, such as freeing all the temporary resources and passing the maximum LOD to the sampler.
 
-Everything is ready, we can now call our new function to generate a mipmapped texture:
+Everything is ready, we can now call our new function to load a mipmapped texture:
 
 \code
 // Load texture with pre-generated mipmaps.
@@ -94,7 +93,8 @@ textures[0] = createMipmappedTextureFromAssets(pPaths);
 
 We have seen the case in which we had already generated our mipmaps, but what if we only have a single image?
 
-Generating mipmaps is perfectly doable in Vulkan. Here is an example, similar to the previous one, with generated mipmaps:
+There is no built-in support for generating mip-maps in Vulkan, but we can use vkCmdBlitImage to achieve the same result.
+Here is an example, similar to the previous one, with generated mipmaps:
 
 \image html mipmapping_auto_generated.gif "Automatically generated mipmaps"
 
@@ -127,7 +127,6 @@ Before we can start, though, we need to load the first mip level to the image in
 
 \code
 VkBufferImageCopy region = {};
-memset(&region, 0, sizeof(region));
 region.bufferOffset = 0;
 region.bufferRowLength = mipLevels[0].width;
 region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -157,7 +156,6 @@ We will then loop through the mip levels and use vkCmdBlitImage to generate each
 
 \code
 VkImageBlit region = {};
-memset(&region, 0, sizeof(region));
 region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 region.srcSubresource.mipLevel = i - 1;
 region.srcSubresource.layerCount = 1;
@@ -191,7 +189,7 @@ imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_REA
                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                    i - 1, 1);
 
-if (i < mipLevelCount)
+if (i + 1 < mipLevelCount)
 {
 	// Transition the current mip level into a TRANSFER_SRC_OPTIMAL layout, to be used as the source for the next one.
 	imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,

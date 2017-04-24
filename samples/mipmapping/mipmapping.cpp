@@ -338,7 +338,6 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 	                   0, mipLevelCount);
 
 	VkBufferImageCopy region = {};
-	memset(&region, 0, sizeof(region));
 	region.bufferOffset = 0;
 	region.bufferRowLength = mipLevels[0].width;
 	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -363,7 +362,6 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 		for (unsigned i = 1; i < mipLevelCount; i++)
 		{
 			VkImageBlit region = {};
-			memset(&region, 0, sizeof(region));
 			region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			region.srcSubresource.mipLevel = i - 1;
 			region.srcSubresource.layerCount = 1;
@@ -385,7 +383,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 			                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			                   i - 1, 1);
 
-			if (i < mipLevelCount)
+			if (i + 1 < mipLevelCount)
 			{
 				// Transition the current mip level into a TRANSFER_SRC_OPTIMAL layout, to be used as the source for the next one.
 				imageMemoryBarrier(cmd, image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -406,7 +404,6 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 		for (unsigned i = 1; i < mipLevelCount; i++)
 		{
 			VkBufferImageCopy region = {};
-			memset(&region, 0, sizeof(region));
 			region.bufferOffset = 0;
 			region.bufferRowLength = mipLevels[i].width;
 			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
