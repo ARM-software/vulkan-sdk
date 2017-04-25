@@ -22,9 +22,9 @@
 precision mediump float;
 
 layout(location = 0) in highp vec2 vTexCoord;
-layout(location = 1) flat in int textureIndex;
-layout(location = 2) flat in int highlightSize;
-layout(location = 3) flat in int fixedMipLevel;
+layout(location = 1) flat in mediump int textureIndex;
+layout(location = 2) flat in mediump int highlightSize;
+layout(location = 3) flat in mediump int fixedMipLevel;
 
 layout(location = 0) out vec4 FragColor;
 

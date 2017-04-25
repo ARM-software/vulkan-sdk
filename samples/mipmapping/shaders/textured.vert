@@ -23,9 +23,9 @@ layout(location = 0) in vec2 Position;
 layout(location = 1) in vec2 TexCoord;
 
 layout(location = 0) out highp vec2 vTexCoord;
-layout(location = 1) flat out int textureIndex;
-layout(location = 2) flat out int highlightSize;
-layout(location = 3) flat out int fixedMipLevel;
+layout(location = 1) flat out mediump int textureIndex;
+layout(location = 2) flat out mediump int highlightSize;
+layout(location = 3) flat out mediump int fixedMipLevel;
 
 layout(set = 0, binding = 2, std140) uniform UBO
 {
