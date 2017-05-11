@@ -427,7 +427,7 @@ Texture Mipmapping::createMipmappedTextureFromAssets(const vector<const char *> 
 	VK_CHECK(vkEndCommandBuffer(cmd));
 	pContext->submit(cmd);
 
-	// We want to free the staging buffer and memory right away, so wait for GPU complete the transfer.
+	// We want to free the staging buffer and memory right away, so wait for the GPU to complete the transfer.
 	vkQueueWaitIdle(pContext->getGraphicsQueue());
 
 	for (auto &mipLevel : mipLevels)
