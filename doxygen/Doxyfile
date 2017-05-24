@@ -1,5 +1,5 @@
 DOXYFILE_ENCODING      = UTF-8
-PROJECT_NAME           = "Mali Vulkan SDK for Android $(VERSION)"
+PROJECT_NAME           = "Vulkan SDK for Android $(VERSION)"
 PROJECT_NUMBER         =
 PROJECT_BRIEF          =
 PROJECT_LOGO           = top_banner.bmp
