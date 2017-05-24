@@ -72,7 +72,7 @@ cmake .. -DPLATFORM=wayland   # or xcb for X11
 #### Documentation
 
 For online tutorials, documentation and explanation of the samples,
-see [Vulkan SDK documentation](http://malideveloper.arm.com/downloads/deved/tutorial/SDK/Vulkan/1.0/index.html).
+see [Vulkan SDK documentation](https://arm-software.github.io/vulkan-sdk/).
 
 To build the same documentation for yourself for offline use, build Doxygen documentation with `./build_documentation.sh`.
 This requires Doxygen to be installed on your machine.
