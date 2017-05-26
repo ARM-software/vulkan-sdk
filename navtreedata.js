@@ -1,10 +1,11 @@
 var NAVTREE =
 [
-  [ "Mali Vulkan SDK for Android 1.1.0", "index.html", [
+  [ "Vulkan SDK for Android 1.1.1", "index.html", [
     [ "About", "index.html#about", null ],
     [ "Requirements", "index.html#requirements", null ],
     [ "Getting Started", "index.html#gettingStarted", null ],
     [ "Change Log", "index.html#changeLog", [
+      [ "Changes in version 1.1.1", "index.html#v111", null ],
       [ "Changes in version 1.1.0", "index.html#v110", null ],
       [ "Changes in version 1.0.0", "index.html#v100", null ]
     ] ],
@@ -20,6 +21,18 @@ var NAVTREE =
       [ "Building and Running Your Application", "getting_started_guide.html#gettingStartedGuideBuildingAProject", null ]
     ] ],
     [ "Tutorials", "tutorials.html", "tutorials" ],
+    [ "Classes", "annotated.html", [
+      [ "Class List", "annotated.html", "annotated_dup" ],
+      [ "Class Index", "classes.html", null ],
+      [ "Class Hierarchy", "hierarchy.html", "hierarchy" ],
+      [ "Class Members", "functions.html", [
+        [ "All", "functions.html", null ],
+        [ "Functions", "functions_func.html", null ],
+        [ "Variables", "functions_vars.html", null ],
+        [ "Enumerations", "functions_enum.html", null ],
+        [ "Enumerator", "functions_eval.html", null ]
+      ] ]
+    ] ],
     [ "Files", null, [
       [ "File List", "files.html", "files" ]
     ] ]
@@ -28,7 +41,8 @@ var NAVTREE =
 
 var NAVTREEINDEX =
 [
-"_a_s_t_c.html"
+".html",
+"hello_triangle.html#helloTriangleSubPass"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';
