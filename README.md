@@ -1,10 +1,10 @@
-# Mali Vulkan SDK for Android
+# Vulkan SDK for Android
 
-![Mali Vulkan SDK banner](https://cloud.githubusercontent.com/assets/26139625/24910397/8c28b25e-1ebf-11e7-820a-4fa295655d0a.png)
+![Vulkan SDK banner](https://cloud.githubusercontent.com/assets/26139625/26449690/86b0f378-414b-11e7-8e64-3ee5eb0fdb97.jpg)
 
 ## Introduction
 
-The Mali Vulkan Software Development Kit is a collection of resources to help you build Vulkan applications
+The Vulkan Software Development Kit is a collection of resources to help you build Vulkan applications
 for a platform with a Mali GPU and an ARM processor.
 You can use it for creating new applications, training, and exploration of implementation possibilities.
 
@@ -17,7 +17,7 @@ It is recommended to use the NDK provided in Android Studio.
 
 ### OS requirements
 
-The Mali Vulkan SDK has been tested to build on Linux (Android Studio) and Windows (Android Studio).
+The Vulkan SDK has been tested to build on Linux (Android Studio) and Windows (Android Studio).
 Partial support for running on Linux desktop is also included.
 
 ### Android requirements
@@ -72,7 +72,7 @@ cmake .. -DPLATFORM=wayland   # or xcb for X11
 #### Documentation
 
 For online tutorials, documentation and explanation of the samples,
-see [Mali Vulkan SDK documentation](http://malideveloper.arm.com/downloads/deved/tutorial/SDK/Vulkan/1.0/index.html).
+see [Vulkan SDK documentation](https://arm-software.github.io/vulkan-sdk/).
 
 To build the same documentation for yourself for offline use, build Doxygen documentation with `./build_documentation.sh`.
 This requires Doxygen to be installed on your machine.

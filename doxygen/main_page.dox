@@ -1,10 +1,10 @@
 /**
 \mainpage
-Welcome to Mali Vulkan SDK for Android $(VERSION).
+Welcome to Vulkan SDK for Android $(VERSION).
 
 \section about About
 
-The Mali Vulkan SDK is a collection of resources to help you build Vulkan applications
+The Vulkan SDK is a collection of resources to help you build Vulkan applications
 for a platform with a Mali GPU and an ARM processor. You can use it for creating new applications,
 training, and exploration of implementation possibilities.
 
@@ -21,7 +21,10 @@ To build and run the Vulkan sample applications you will need:
  -  Look at \ref buildingTheSamples for how to build the samples.
 
 \section changeLog Change Log
-Summary of changes between versions of the Mali Vulkan SDK.
+Summary of changes between versions of the Vulkan SDK.
+
+\subsection v111 Changes in version 1.1.1
+ -  Added Mipmapping sample
 
 \subsection v110 Changes in version 1.1.0
  -  Added Multipass sample

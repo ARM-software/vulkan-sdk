@@ -1,6 +1,6 @@
 /**
 \page buildingTheSamples Building The Samples
-\brief Shows how to build the Vulkan samples included in the Mali Vulkan SDK for Android.
+\brief Shows how to build the Vulkan samples included in the Vulkan SDK for Android.
 
 It is assumed that you have set up Android Studio and NDK appropriately as mentioned in the \ref gettingStartedGuide.
 
