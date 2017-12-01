@@ -465,11 +465,10 @@ void ASTC::initRenderPass(VkFormat format)
 	dependency.dstSubpass = 0;
 	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	// We are creating a write-after-read dependency (presentation must be done reading), so we don't need a memory barrier.
+	// Since we changed the image layout, we need to make the memory visible to
+	// color attachment to modify.
 	dependency.srcAccessMask = 0;
-	// The layout transition to COLOR_ATTACHMENT_OPTIMAL will imply a memory
-	// barrier for the relevant access bits, so we don't have to do it.
-	dependency.dstAccessMask = 0;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
 	// Finally, create the renderpass.
 	VkRenderPassCreateInfo rpInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };

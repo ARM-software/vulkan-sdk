@@ -518,7 +518,8 @@ void Multisampling::initRenderPass(VkFormat format)
 	dependency.dstSubpass = 0;
 	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	// We are creating a write-after-read dependency (presentation must be done reading), so we don't need a memory barrier.
+	// We are creating a write-after-read dependency (presentation must be done reading), so we
+	// don't need a memory barrier in source access mask.
 	// However, in this case we are also writing to a multisampled image which is reused every frame.
 	// We need to make sure that all writes to it are complete before we start a new frame.
 	dependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;

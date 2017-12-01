@@ -1,5 +1,5 @@
 /**
-\page ValidationLayer Using Validation Layers for Debugging Applications
+\page validationLayer Using Validation Layers for Debugging Applications
 
 \brief Introduces how to use the LunarG Validation Layers with your Vulkan application.
 

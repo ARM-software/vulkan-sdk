@@ -1,5 +1,5 @@
 /**
-\page ASTC Adaptive Scalable Texture Compression (ASTC) with ARM Mali
+\page astc Adaptive Scalable Texture Compression (ASTC) with ARM Mali
 
 \brief Introduces how to use the ASTC compression standard for textures in Vulkan.
 

@@ -18,9 +18,9 @@ folder of the SDK.
  -# \subpage creatingVulkanWindow
 
     \copybrief creatingVulkanWindow
- -# \subpage ValidationLayer
+ -# \subpage validationLayer
 
-    \copybrief ValidationLayer
+    \copybrief validationLayer
  -# \subpage helloTriangle
 
     \copybrief helloTriangle
@@ -42,9 +42,9 @@ folder of the SDK.
  -# \subpage multipass
 
     \copybrief multipass
- -# \subpage ASTC
+ -# \subpage astc
 
-    \copybrief ASTC
+    \copybrief astc
  -# \subpage mipmapping
 
     \copybrief mipmapping
