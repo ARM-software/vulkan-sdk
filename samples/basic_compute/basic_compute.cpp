@@ -591,7 +591,7 @@ void BasicCompute::render(unsigned swapchainIndex, float)
 	// Make sure that the vertex attributes can be read correctly by using
 	// VERTEX_ATTRIBUTE_READ_BIT dstAccessMask.
 	memoryBarrier(cmd, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
-	              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+	              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT);
 
 	// Set clear color values.
 	VkClearValue clearValue;
