@@ -6,7 +6,7 @@ def sample = new File(parent).getName()
 
 android {
     compileSdkVersion 23
-    buildToolsVersion "26.0.2"
+    buildToolsVersion "28.0.3"
 
     defaultConfig {
         minSdkVersion 21
