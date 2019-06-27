@@ -41,7 +41,7 @@ git submodule update
 
 #### Build and run samples from Android Studio
 
-  - Open Android Studio 2.3 or newer
+  - Open Android Studio 3.4 or newer
   - Open an existing Android Studio project
   - Import a sample project
   - You might be prompted to update or install the Gradle wrapper. Do so if asked.
