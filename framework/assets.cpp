@@ -136,6 +136,8 @@ Result loadASTCTextureFromAsset(const char *pPath, vector<uint8_t> *pBuffer, uns
 		*pFormat = VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
 	else if (header.blockdimX == 5 && header.blockdimY == 4) // 5x4
 		*pFormat = VK_FORMAT_ASTC_5x4_UNORM_BLOCK;
+	else if (header.blockdimX == 5 && header.blockdimY == 5) // 5x5
+		*pFormat = VK_FORMAT_ASTC_5x5_UNORM_BLOCK;
 	else if (header.blockdimX == 6 && header.blockdimY == 5) // 6x5
 		*pFormat = VK_FORMAT_ASTC_6x5_UNORM_BLOCK;
 	else if (header.blockdimX == 6 && header.blockdimY == 6) // 6x6
