@@ -2,6 +2,12 @@
 
 ![Vulkan SDK banner](https://cloud.githubusercontent.com/assets/26139625/26449690/86b0f378-414b-11e7-8e64-3ee5eb0fdb97.jpg)
 
+***
+This project is not supported. For the latest tutorials and samples please go to:
+
+- [Vulkan-Samples](https://github.com/khronosGroup/Vulkan-samples)
+***
+
 ## Introduction
 
 The Vulkan Software Development Kit is a collection of resources to help you build Vulkan applications
@@ -27,6 +33,10 @@ Not all Android devices support Vulkan. To make sure your Android device has the
 ### License
 
 The software is provided under an MIT license. Contributions to this project are accepted under the same license.
+
+### Trademarks
+
+Vulkan is a registered trademark of the Khronos Group Inc.
 
 ### Building
 
