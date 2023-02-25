@@ -1,6 +1,6 @@
 [submodule "framework/glm"]
 	path = framework/glm
-	url = git://github.com/g-truc/glm
+	url = https://github.com/g-truc/glm.git
 [submodule "framework/stb"]
 	path = framework/stb
-	url = git://github.com/nothings/stb
+	url = https://github.com/nothings/stb.git
